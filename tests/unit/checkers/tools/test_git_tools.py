@@ -12,6 +12,7 @@ from triage0.checkers.tools.git_tools import (
     find_versions,
     list_tags,
     resolve_tag,
+    run_git,
     tag_version,
 )
 
@@ -147,3 +148,32 @@ def test_list_tags_ignores_inherited_git_dir(tmp_path: Path, monkeypatch: pytest
     _git(tmp_path, "tag", "curl-8_13_0")
     monkeypatch.setenv("GIT_DIR", str(tmp_path / "nowhere"))
     assert list_tags(tmp_path) == ["curl-8_13_0"]
+
+
+# --- run_git hardening (real git, no network) ----------------------------------
+
+
+@pytest.mark.parametrize("url_template", ["ext::sh -c touch% {marker}", "file://{repo}", "{repo}"])
+def test_run_git_blocks_non_https_transports(tmp_path: Path, url_template: str) -> None:
+    # Our URL check already rejects these; this proves git itself refuses too.
+    # Plain git allows file:// and local paths, so those cases test our
+    # hardening. Plain git already blocks ext:: by default; that case only
+    # guards against a config that re-enables it.
+    repo, marker = tmp_path / "repo", tmp_path / "pwned"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    url = url_template.format(marker=marker, repo=repo)
+    with pytest.raises(subprocess.CalledProcessError):
+        run_git(["ls-remote", url])
+    assert not marker.exists()
+
+
+def test_run_git_ignores_personal_git_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A personal config could enable LFS or filters that run programs on checkout.
+    personal = tmp_path / "gitconfig"
+    personal.write_text("[user]\n\tname = leaked\n")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".gitconfig").write_text(personal.read_text())
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(personal))
+    with pytest.raises(subprocess.CalledProcessError):  # exit 1 = "key not set"
+        run_git(["config", "--get", "user.name"])

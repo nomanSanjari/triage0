@@ -137,3 +137,49 @@ def test_ensure_clone_rejects_bad_url_before_touching_disk(tmp_path: Path) -> No
     with pytest.raises(RepoCacheError):
         cache.ensure_clone("file:///etc")
     assert not (tmp_path / "cache").exists()
+
+
+# --- ensure_clone() branches (git replaced by a recorder, no network) ---------
+
+
+class _FakeGit:
+    """Records run_git calls; optionally fails like an interrupted clone."""
+
+    def __init__(self, fail_clone: bool = False) -> None:
+        self.calls: list[list[str]] = []
+        self.fail_clone = fail_clone
+
+    def __call__(self, args: list[str], *, repo: Path | None = None, timeout: float = 0) -> None:
+        self.calls.append(args)
+        if args[0] == "clone":
+            Path(args[-1]).mkdir(parents=True)  # git creates the folder early
+            (Path(args[-1]) / "HEAD").write_text("partial")
+            if self.fail_clone:
+                raise subprocess.CalledProcessError(128, ["git", *args])
+
+
+URL = "https://github.com/curl/curl.git"
+
+
+def test_ensure_clone_clones_then_fetches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeGit()
+    monkeypatch.setattr("triage0.storage.repo_cache.run_git", fake)
+    cache = RepoCache(tmp_path / "cache")
+
+    first = cache.ensure_clone(URL)
+    second = cache.ensure_clone(URL)
+
+    assert first == second == tmp_path / "cache/github.com/curl/curl.git"
+    assert fake.calls[0][:2] == ["clone", "--bare"]
+    assert fake.calls[0][-3:] == ["--", URL, str(first)]
+    assert fake.calls[1] == ["fetch", "--quiet", "origin", "+refs/tags/*:refs/tags/*"]
+    assert len(fake.calls) == 2
+
+
+def test_ensure_clone_removes_a_half_finished_clone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("triage0.storage.repo_cache.run_git", _FakeGit(fail_clone=True))
+    cache = RepoCache(tmp_path / "cache")
+    with pytest.raises(subprocess.CalledProcessError):
+        cache.ensure_clone(URL)
+    # Otherwise the next call would see the folder and only "fetch" a broken repo.
+    assert not (tmp_path / "cache/github.com/curl/curl.git").exists()

@@ -108,3 +108,32 @@ def test_stop_is_safe_to_repeat(provider: DockerLocal, src: Path) -> None:
     provider.stop(container_id)
     provider.stop(container_id)
     assert container_id not in list_sandbox_containers()
+
+
+# --- limits are enforced, not just passed as flags ------------------------------
+
+
+def test_pids_limit_stops_a_fork_bomb(src: Path) -> None:
+    provider = DockerLocal(SandboxLimits(pids=32, lifetime_seconds=60))
+    container_id = provider.start(IMAGE, src)
+    try:
+        # Try to start 64 background processes with only 32 allowed.
+        result = provider.exec(
+            container_id, ["sh", "-c", "for i in $(seq 64); do sleep 20 & done"], timeout=30
+        )
+    finally:
+        provider.stop(container_id)
+    assert "fork" in result.stderr.lower()
+
+
+def test_memory_limit_kills_a_memory_hog(src: Path) -> None:
+    provider = DockerLocal(SandboxLimits(memory="128m", lifetime_seconds=60))
+    container_id = provider.start(IMAGE, src)
+    try:
+        # tail -n1 must hold the whole newline-free input in memory: 512 MiB > 128 MiB.
+        result = provider.exec(
+            container_id, ["sh", "-c", "head -c 512m /dev/zero | tail -n1 > /dev/null"], timeout=60
+        )
+    finally:
+        provider.stop(container_id)
+    assert result.exit_code == 137  # 128 + SIGKILL from the kernel's OOM killer

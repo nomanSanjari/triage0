@@ -141,8 +141,17 @@ def test_project_from_url() -> None:
 )
 def test_definition_of_done_real_curl(tmp_path: Path, temp_root: Path) -> None:
     """Issue #5 acceptance: "curl 8.13.0" -> offline container with that code -> output -> no leftovers."""
-    manager = SandboxManager(RepoCache(tmp_path / "cache"), DockerLocal(), IMAGE)
-    with manager.session("https://github.com/curl/curl.git", "curl 8.13.0") as session:
+    url = "https://github.com/curl/curl.git"
+    cache = RepoCache(tmp_path / "cache")
+    manager = SandboxManager(cache, DockerLocal(), IMAGE)
+
+    # Exercise the fetch path too: clone, delete the tag locally, and let
+    # session() (which calls ensure_clone again) fetch it back from GitHub.
+    bare = cache.ensure_clone(url)
+    _git(bare, "tag", "--delete", "curl-8_13_0")
+    assert "curl-8_13_0" not in _git(bare, "tag", "--list").split()
+
+    with manager.session(url, "curl 8.13.0") as session:
         # In git, LIBCURL_VERSION always reads "x.y.z-DEV" (curl's release
         # script rewrites it only in tarballs), so check the numeric version.
         version = session.run(["grep", "-m1", "^#define LIBCURL_VERSION_NUM ", f"/src/{VERSION_FILE}"])
