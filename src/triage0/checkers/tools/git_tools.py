@@ -12,6 +12,7 @@ CONTRADICTED. A refusal only ever leads to CANT_CHECK.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from collections.abc import Iterable
@@ -20,6 +21,21 @@ from enum import Enum
 from pathlib import Path
 
 GIT_TIMEOUT_SECONDS = 30
+
+# Repos we check are untrusted. These settings stop git from running
+# anything the repo or the user's personal config asks for: hooks, LFS
+# downloads, credential prompts, or non-https transports like ext::.
+_GIT_SAFE_CONFIG = [
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "protocol.allow=never",
+    "-c", "protocol.https.allow=always",
+]
+_GIT_SAFE_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,  # ignore ~/.gitconfig (LFS filters, aliases)
+    "GIT_CONFIG_NOSYSTEM": "1",       # ignore /etc/gitconfig
+    "GIT_TERMINAL_PROMPT": "0",       # fail instead of waiting for a password
+    "GIT_LFS_SKIP_SMUDGE": "1",       # never download LFS files
+}
 
 # Two or more numbers joined by "." or "_" (curl tags use "_": curl-8_13_0).
 _VERSION = r"\d+(?:[._]\d+)+"
@@ -142,19 +158,33 @@ def resolve_tag(version_text: str, project: str, tags: Iterable[str]) -> TagReso
     )
 
 
-def list_tags(repo: Path) -> list[str]:
-    """Return every tag name in `repo` (bare or not).
+def run_git(
+    args: list[str], *, repo: Path | None = None, timeout: float = GIT_TIMEOUT_SECONDS
+) -> subprocess.CompletedProcess[str]:
+    """Run git with hardened settings. The single place all git calls go through.
 
-    Raises subprocess.CalledProcessError if git fails (e.g. not a repo) and
-    subprocess.TimeoutExpired if it hangs.
+    Any GIT_* variables inherited from the caller (e.g. GIT_DIR) are dropped
+    so they can't silently point git at a different repo. Raises
+    CalledProcessError on a non-zero exit and TimeoutExpired if it hangs.
     """
-    result = subprocess.run(
-        ["git", "-C", str(repo), "tag", "--list"],
+    command = ["git", *_GIT_SAFE_CONFIG]
+    if repo is not None:
+        command += ["-C", str(repo)]
+    command += args
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(_GIT_SAFE_ENV)
+    return subprocess.run(
+        command,
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=GIT_TIMEOUT_SECONDS,
+        env=env,
+        timeout=timeout,
         check=True,
     )
-    return result.stdout.splitlines()
+
+
+def list_tags(repo: Path) -> list[str]:
+    """Return every tag name in `repo` (bare or not)."""
+    return run_git(["tag", "--list"], repo=repo).stdout.splitlines()

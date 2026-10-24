@@ -133,3 +133,16 @@ def test_list_tags_reads_a_real_repo(tmp_path: Path) -> None:
 def test_list_tags_fails_loudly_outside_a_repo(tmp_path: Path) -> None:
     with pytest.raises(subprocess.CalledProcessError):
         list_tags(tmp_path / "missing")
+
+
+def test_list_tags_ignores_inherited_git_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An inherited GIT_DIR would silently point git at another repo.
+    _git(tmp_path, "init", "-q")
+    _git(
+        tmp_path,
+        "-c", "user.name=test", "-c", "user.email=test@example.com",
+        "commit", "-q", "--allow-empty", "-m", "init",
+    )
+    _git(tmp_path, "tag", "curl-8_13_0")
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "nowhere"))
+    assert list_tags(tmp_path) == ["curl-8_13_0"]
