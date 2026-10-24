@@ -55,7 +55,8 @@ def test_find_versions_falls_back_to_bare_versions() -> None:
 
 
 def test_find_versions_rejects_dev_builds() -> None:
-    # 8.13.0-DEV is unreleased code from before 8.13.0, not the 8.13.0 tag.
+    # 8.13.0-DEV means "built from git": any commit after 8.12.x up to the
+    # 8.13.0 tag. We can't know which, so we must not pick a tag.
     assert find_versions("curl 8.13.0-DEV", "curl") == set()
 
 

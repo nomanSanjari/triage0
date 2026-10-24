@@ -40,8 +40,9 @@ _GIT_SAFE_ENV = {
 # Two or more numbers joined by "." or "_" (curl tags use "_": curl-8_13_0).
 _VERSION = r"\d+(?:[._]\d+)+"
 
-# The version must not be glued to more text. A trailing "-DEV", "-rc1" or
-# extra digits means a different (often unreleased) build, not the tag.
+# The version must not be glued to more text. A trailing "-rc1" or extra
+# digits means a different build. curl's "-DEV" means built from git: any
+# commit after the previous release up to this tag, so we can't pick one.
 _VERSION_END = r"(?![-\w]|[._]\d)"
 
 # A bare version in prose, not part of a longer token like "libcurl/8.1".
