@@ -14,11 +14,13 @@ import os
 import re
 import subprocess
 import time
+import urllib
 import urllib.error
 import urllib.request
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from urllib.parse import urlparse
 
 from pydantic import (
     BaseModel,
@@ -29,12 +31,72 @@ from pydantic import (
     model_validator,
 )
 
-from .metrics import (
+from triage0.eval.metrics import (
     BaselineLabel,
     BaselineVerdict,
     calculate_metrics,
     coerce_baseline_verdict,
 )
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow only same-origin redirects; refuse cross-origin or HTTPS->HTTP downgrade.
+
+    When the origin changes, the Authorization header is stripped to avoid leaking
+    credentials to unrelated hosts. This preserves compatibility with legitimate
+    same-origin redirects (trailing slashes, API gateway rewrites) while blocking
+    the credential-forwarding vulnerability in the default handler.
+    """
+
+    def __init__(self, original_origin: tuple[str, str, int] | None = None):
+        self._original_origin = original_origin
+
+    def _origin(self, url: str) -> tuple[str, str, int] | None:
+        try:
+            parsed = urlparse(url)
+            return (parsed.scheme, parsed.hostname or "", parsed.port or (443 if parsed.scheme == "https" else 80))
+        except Exception:
+            return None
+
+    def _is_same_origin(self, new_url: str) -> bool:
+        if self._original_origin is None:
+            return False
+        new_origin = self._origin(new_url)
+        return new_origin == self._original_origin
+
+    def _is_downgrade(self, new_url: str) -> bool:
+        if self._original_origin is None:
+            return False
+        new_origin = self._origin(new_url)
+        return self._original_origin[0] == "https" and new_origin is not None and new_origin[0] == "http"
+
+    def http_error_302(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+    ) -> Any:
+        new_url = headers.get("Location", "")
+        if not new_url:
+            return super().http_error_302(req, fp, code, msg, headers)
+        if self._is_downgrade(new_url):
+            raise urllib.error.HTTPError(req.full_url, 403, "HTTPS->HTTP downgrade redirect refused", headers, fp)
+        if not self._is_same_origin(new_url):
+            # Strip Authorization when redirecting to a different origin
+            req = urllib.request.Request(
+                new_url,
+                data=req.data,
+                headers={k: v for k, v in req.header_items() if k.lower() != "authorization"},
+                method=req.get_method(),
+            )
+        return super().http_error_302(req, fp, code, msg, headers)
+
+    http_error_301 = http_error_302
+    http_error_303 = http_error_302
+    http_error_307 = http_error_302
+    http_error_308 = http_error_302
 
 __all__ = [
     "BaselineError",
@@ -732,6 +794,10 @@ def load_reports(
 
 def _repo_files_from_worktree(base: Path, max_file_bytes: int) -> list[str]:
     # Do not follow symlinks; the snapshot must stay inside the checkout.
+    # NOTE: Size filtering is intentionally deferred to the inclusion loop so that
+    # referenced files are never pre-filtered out. Oversized files will be truncated
+    # rather than skipped, ensuring the report's priority files always have a chance
+    # to appear in the context.
     paths: list[str] = []
     for current, dirs, filenames in os.walk(base):
         dirs[:] = sorted(d for d in dirs if d not in IGNORED_DIRS and not d.startswith("."))
@@ -739,11 +805,7 @@ def _repo_files_from_worktree(base: Path, max_file_bytes: int) -> list[str]:
             path = Path(current) / filename
             if path.is_symlink() or path.suffix.lower() not in TEXT_SUFFIXES:
                 continue
-            try:
-                if path.stat().st_size <= max_file_bytes:
-                    paths.append(path.relative_to(base).as_posix())
-            except OSError:
-                continue
+            paths.append(path.relative_to(base).as_posix())
     return sorted(paths)
 
 
@@ -790,12 +852,16 @@ def collect_repository_context(
         paths = _repo_files_from_worktree(base, max_file_bytes)
         display_ref = "working-tree (not pinned to a commit)"
 
-    # Prioritize files named by the report, then common repository entry points.
+    # Prioritize files named by the report, then source code, then root-level docs/config.
     referenced = set(PATH_RE.findall((report or "").replace("\\", "/")))
-    preferred_names = {"readme.md", "security.md", "configure.ac", "cmakelists.txt"}
+    # Source-code extensions get priority over docs.
+    source_suffixes = {".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".py", ".rs", ".go", ".java", ".js", ".ts", ".tsx", ".jsx"}
+    # Root-level preferred names only (not nested docs).
+    preferred_root_names = {"readme.md", "security.md", "configure.ac", "cmakelists.txt"}
     paths.sort(key=lambda name: (
         0 if name in referenced else 1,
-        0 if Path(name).name.lower() in preferred_names else 1,
+        0 if Path(name).suffix.lower() in source_suffixes else 1,
+        0 if (Path(name).name.lower() in preferred_root_names and "/" not in name) else 1,
         name.lower(),
     ))
 
@@ -807,36 +873,40 @@ def collect_repository_context(
     chunks: list[str] = [header]
     used = len(header)
     included = 0
+    TRUNCATION_MARKER = "\n...[truncated]"
+
     for relative in paths:
         if included >= max_files or used >= max_context_chars:
             break
         try:
             if ref:
-                # Check size before `git show` so one large object cannot consume
-                # the whole prompt budget.
-                size_text = _run_git(base, "cat-file", "-s", f"{display_ref}:{relative}").strip()
-                if not size_text.isdigit() or int(size_text) > max_file_bytes:
-                    continue
                 content = _run_git(base, "show", f"{display_ref}:{relative}")
             else:
                 file_path = base / relative
-                # Re-check symlinks because the working tree may change after listing.
-                if file_path.is_symlink() or file_path.stat().st_size > max_file_bytes:
+                if file_path.is_symlink():
                     continue
                 content = _read_text(file_path)
         except (OSError, BaselineError):
             continue
-        block = f"\n--- FILE: {relative} ---\n{content}\n"
-        remaining = max_context_chars - used
-        if len(block) > remaining:
-            if remaining > 200:
-                chunks.append(block[:remaining] + "\n...[truncated]")
-                used = max_context_chars
-                included += 1
+
+        # Hard-cap the file content so the block + marker never exceeds budget.
+        file_header = f"\n--- FILE: {relative} ---\n"
+        max_content_len = max_context_chars - used - len(file_header) - len(TRUNCATION_MARKER)
+        if max_content_len < 50:  # Not enough room for meaningful content
             break
-        chunks.append(block)
-        used += len(block)
+        if len(content) > max_content_len:
+            content = content[:max_content_len]
+            file_block = file_header + content + TRUNCATION_MARKER
+            chunks.append(file_block)
+            used = max_context_chars
+            included += 1
+            break
+
+        file_block = file_header + content + "\n"
+        chunks.append(file_block)
+        used += len(file_block)
         included += 1
+
     # An empty snapshot would force the model to guess; fail instead.
     if included == 0:
         raise BaselineError(f"No supported text files could be included from repository {base}.")
@@ -991,6 +1061,11 @@ def call_model(
     endpoint = (base_url or os.getenv("TRIAGE0_BASELINE_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
     url = endpoint if endpoint.endswith("/chat/completions") else endpoint + "/chat/completions"
 
+    # Build a custom opener with same-origin redirect handling to avoid leaking
+    # Authorization headers on cross-origin redirects or HTTPS->HTTP downgrades.
+    redirect_handler = _SameOriginRedirectHandler(_SameOriginRedirectHandler()._origin(url))
+    opener = urllib.request.build_opener(redirect_handler)
+
     body = {
         "model": model_name,
         "messages": [
@@ -1016,7 +1091,7 @@ def call_model(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with opener.open(request, timeout=timeout) as response:
                 raw = response.read().decode("utf-8")
             try:
                 # Strict parsing keeps NaN/Infinity out of result serialization.

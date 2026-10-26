@@ -60,6 +60,10 @@ _VERDICT_ALIASES = {
     "INCONCLUSIVE": "UNCERTAIN",
     "UNKNOWN": "UNCERTAIN",
     "UNSURE": "UNCERTAIN",
+    # Handle right single quotation mark (U+2019) and other apostrophe variants
+    "CAN'T_CHECK": "UNCERTAIN",
+    "CANTCHECK": "UNCERTAIN",
+    "CANT_CHECK": "UNCERTAIN",  # Already exists but explicit
 }
 
 
@@ -77,7 +81,8 @@ def coerce_baseline_verdict(value: Any) -> BaselineVerdict | None:
     if isinstance(value, BaselineLabel) or not isinstance(value, str):
         return None
     # Normalize formatting variants before trying the alias table.
-    normalized = value.strip().upper().replace("’", "'").replace("-", "_").replace(" ", "_")
+    # Replace right single quotation mark (U+2019) and replacement char (U+FFFD) with apostrophe.
+    normalized = value.strip().upper().replace("\u2019", "'").replace("\ufffd", "'").replace("-", "_").replace(" ", "_")
     normalized = _VERDICT_ALIASES.get(normalized, normalized)
     try:
         return BaselineVerdict(normalized)
@@ -98,6 +103,10 @@ def calculate_metrics(results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     Rows with ``error`` are execution failures, not model abstentions, and are
     excluded from prediction-rate denominators. They remain in report_count and
     are surfaced in execution_error_count / evaluation_coverage.
+
+    Parse errors (malformed model output recorded as UNCERTAIN with a non-null
+    verdict_parse_error) are tracked separately from genuine UNCERTAIN
+    abstentions so they can be distinguished in metrics.
     """
 
     rows = list(results)
@@ -155,19 +164,30 @@ def calculate_metrics(results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         for row in completed
         if str(row["ground_truth"]).strip().lower() == "real"
     ]
+
+    # Overall verdict counts (completed predictions only)
     verdict_counts: Counter[str] = Counter(
         normalize_verdict(row.get("verdict")) for row in completed
     )
 
-    fake_caught = sum(
-        normalize_verdict(row.get("verdict")) == BaselineVerdict.INVALID
-        for row in fake
+    # Per-label verdict counts for detailed breakdown
+    fake_verdict_counts: Counter[str] = Counter(
+        normalize_verdict(row.get("verdict")) for row in fake
     )
-    false_flags = sum(
-        normalize_verdict(row.get("verdict")) == BaselineVerdict.INVALID
-        for row in real
+    real_verdict_counts: Counter[str] = Counter(
+        normalize_verdict(row.get("verdict")) for row in real
     )
-    uncertain = verdict_counts[BaselineVerdict.UNCERTAIN.value]
+
+    fake_caught = fake_verdict_counts[BaselineVerdict.INVALID.value]
+    false_flags = real_verdict_counts[BaselineVerdict.INVALID.value]
+    uncertain_total = verdict_counts[BaselineVerdict.UNCERTAIN.value]
+
+    # Parse-error tracking: malformed model outputs recorded as UNCERTAIN
+    parse_error_count = sum(
+        1 for row in completed if row.get("verdict_parse_error") is not None
+    )
+    # Genuine uncertainty: UNCERTAIN verdicts without a parse error
+    genuine_uncertain_count = uncertain_total - parse_error_count
 
     total_cost = 0.0
     known_cost_count = 0
@@ -193,6 +213,8 @@ def calculate_metrics(results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     evaluated = len(completed)
     fake_count = len(fake)
     real_count = len(real)
+    all_fake_count = len(all_fake)
+    all_real_count = len(all_real)
     all_costs_known = known_cost_count == total
 
     return {
@@ -200,33 +222,49 @@ def calculate_metrics(results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         "evaluated_report_count": evaluated,
         "execution_error_count": len(errors),
         "evaluation_coverage": evaluated / total,
-        "fake_report_count": len(all_fake),
-        "real_report_count": len(all_real),
+        "fake_report_count": all_fake_count,
+        "real_report_count": all_real_count,
         "evaluated_fake_report_count": fake_count,
         "evaluated_real_report_count": real_count,
+        # Overall verdict distribution
         "verdict_counts": {
-            BaselineVerdict.VALID.value: verdict_counts[
-                BaselineVerdict.VALID.value
-            ],
-            BaselineVerdict.INVALID.value: verdict_counts[
-                BaselineVerdict.INVALID.value
-            ],
-            BaselineVerdict.UNCERTAIN.value: uncertain,
+            BaselineVerdict.VALID.value: verdict_counts[BaselineVerdict.VALID.value],
+            BaselineVerdict.INVALID.value: verdict_counts[BaselineVerdict.INVALID.value],
+            BaselineVerdict.UNCERTAIN.value: uncertain_total,
         },
+        # Per-label verdict breakdown
+        "verdict_counts_by_label": {
+            "fake": {
+                BaselineVerdict.VALID.value: fake_verdict_counts[BaselineVerdict.VALID.value],
+                BaselineVerdict.INVALID.value: fake_verdict_counts[BaselineVerdict.INVALID.value],
+                BaselineVerdict.UNCERTAIN.value: fake_verdict_counts[BaselineVerdict.UNCERTAIN.value],
+            },
+            "real": {
+                BaselineVerdict.VALID.value: real_verdict_counts[BaselineVerdict.VALID.value],
+                BaselineVerdict.INVALID.value: real_verdict_counts[BaselineVerdict.INVALID.value],
+                BaselineVerdict.UNCERTAIN.value: real_verdict_counts[BaselineVerdict.UNCERTAIN.value],
+            },
+        },
+        # Parse-error metrics
+        "verdict_parse_error_count": parse_error_count,
+        "verdict_parse_error_share": parse_error_count / evaluated if evaluated else None,
+        # Genuine uncertainty (abstentions not caused by malformed output)
+        "genuine_uncertain_count": genuine_uncertain_count,
+        "genuine_uncertain_share": genuine_uncertain_count / evaluated if evaluated else None,
+        # Legacy rates (kept for backward compatibility; per-label counts above are preferred)
         "fake_catch_rate": fake_caught / fake_count if fake_count else None,
         "fake_catch_count": fake_caught,
-        "false_flag_rate_on_real": (
-            false_flags / real_count if real_count else None
-        ),
+        "false_flag_rate_on_real": false_flags / real_count if real_count else None,
         "false_flag_count_on_real": false_flags,
-        "cant_check_share": uncertain / evaluated if evaluated else None,
-        "cant_check_count": uncertain,
-        "total_cost_usd": (
-            round(total_cost, 8) if all_costs_known else None
-        ),
-        "cost_per_report_usd": (
-            round(total_cost / total, 8) if all_costs_known else None
-        ),
+        # Split cant_check into parse errors vs genuine abstentions
+        "cant_check_share": uncertain_total / evaluated if evaluated else None,
+        "cant_check_count": uncertain_total,
+        "cant_check_parse_error_share": parse_error_count / evaluated if evaluated else None,
+        "cant_check_parse_error_count": parse_error_count,
+        "cant_check_genuine_abstention_share": genuine_uncertain_count / evaluated if evaluated else None,
+        "cant_check_genuine_abstention_count": genuine_uncertain_count,
+        "total_cost_usd": round(total_cost, 8) if all_costs_known else None,
+        "cost_per_report_usd": round(total_cost / total, 8) if all_costs_known else None,
         "cost_coverage": f"{known_cost_count}/{total}",
         "definitions": {
             "fake_catch_rate": (
@@ -246,6 +284,18 @@ def calculate_metrics(results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             "cant_check_share": (
                 "UNCERTAIN model verdicts / completed predictions; execution "
                 "failures excluded"
+            ),
+            "verdict_parse_error_share": (
+                "completed predictions with a verdict_parse_error / completed "
+                "predictions; these are malformed model outputs recorded as UNCERTAIN"
+            ),
+            "genuine_uncertain_share": (
+                "UNCERTAIN model verdicts without a parse_error / completed "
+                "predictions; genuine model abstentions"
+            ),
+            "verdict_counts_by_label": (
+                "verdict distribution split by ground-truth label (fake/real); "
+                "preferred over aggregate rates"
             ),
             "cost": (
                 "reported API usage cost; null unless cost is known for every "

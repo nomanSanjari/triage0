@@ -20,6 +20,7 @@ from triage0.eval.baseline import (
     resolve_git_ref,
     run_baseline,
 )
+from triage0.eval.baseline import baseline as baseline_module
 from triage0.eval.metrics import BaselineLabel, BaselineVerdict
 
 
@@ -50,10 +51,14 @@ def _install_api_response(monkeypatch, payload):
         def read(self):
             return json.dumps(payload).encode("utf-8")
 
+    class MockOpener:
+        def open(self, request, timeout=None):
+            return FakeResponse()
+
     monkeypatch.setattr(
-        baseline.urllib.request,
-        "urlopen",
-        lambda request, timeout: FakeResponse(),
+        baseline_module.urllib.request,
+        "build_opener",
+        lambda *args, **kwargs: MockOpener(),
     )
 
 
@@ -369,7 +374,7 @@ def test_resolve_git_ref_rejects_empty_or_unknown_refs(tmp_path):
 
 def test_run_baseline_tracks_resolved_commit(monkeypatch, tmp_path):
     commit = _init_git_repo(tmp_path)
-    monkeypatch.setattr(baseline, "call_model", lambda *args, **kwargs: _prediction_payload(
+    monkeypatch.setattr(baseline_module, "call_model", lambda *args, **kwargs: _prediction_payload(
         verdict="VALID",
         rationale="supported",
     ))
@@ -393,7 +398,7 @@ def test_run_baseline_marks_prebuilt_context_as_unpinned(monkeypatch):
         prompts.append(prompt)
         return _prediction_payload()
 
-    monkeypatch.setattr(baseline, "call_model", record_prompt)
+    monkeypatch.setattr(baseline_module, "call_model", record_prompt)
 
     result = run_baseline(
         [{"id": "r1", "report": "report", "ground_truth": "real"}],
@@ -408,7 +413,7 @@ def test_run_baseline_marks_prebuilt_context_as_unpinned(monkeypatch):
 
 
 def test_run_baseline_warns_when_ref_is_requested_for_prebuilt_context(monkeypatch):
-    monkeypatch.setattr(baseline, "call_model", lambda *args, **kwargs: _prediction_payload())
+    monkeypatch.setattr(baseline_module, "call_model", lambda *args, **kwargs: _prediction_payload())
 
     result = run_baseline(
         [
@@ -430,7 +435,7 @@ def test_run_baseline_warns_when_ref_is_requested_for_prebuilt_context(monkeypat
 
 def test_run_baseline_qualifies_cross_label_duplicate_ids(monkeypatch, tmp_path):
     (tmp_path / "README.md").write_text("readme", encoding="utf-8")
-    monkeypatch.setattr(baseline, "call_model", lambda *args, **kwargs: _prediction_payload())
+    monkeypatch.setattr(baseline_module, "call_model", lambda *args, **kwargs: _prediction_payload())
 
     result = run_baseline(
         [
@@ -447,7 +452,7 @@ def test_run_baseline_qualifies_cross_label_duplicate_ids(monkeypatch, tmp_path)
 def test_run_baseline_rejects_invalid_record_before_api_call(monkeypatch, tmp_path):
     (tmp_path / "README.md").write_text("readme", encoding="utf-8")
     monkeypatch.setattr(
-        baseline,
+        baseline_module,
         "call_model",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("call_model must not run for an invalid record")
@@ -464,7 +469,7 @@ def test_run_baseline_rejects_invalid_record_before_api_call(monkeypatch, tmp_pa
 def test_run_baseline_records_malformed_output_as_completed_uncertain(monkeypatch, tmp_path):
     (tmp_path / "README.md").write_text("readme", encoding="utf-8")
     monkeypatch.setattr(
-        baseline,
+        baseline_module,
         "call_model",
         lambda *args, **kwargs: _prediction_payload(
             verdict="UNCERTAIN",
@@ -489,8 +494,8 @@ def test_continue_on_error_does_not_count_failure_as_abstention(monkeypatch, tmp
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "README.md").write_text("readme", encoding="utf-8")
-    monkeypatch.setattr(baseline, "call_model", lambda *args, **kwargs: (_ for _ in ()).throw(BaselineError("offline")))
-    result = baseline.run_baseline(
+    monkeypatch.setattr(baseline_module, "call_model", lambda *args, **kwargs: (_ for _ in ()).throw(BaselineError("offline")))
+    result = run_baseline(
         [{"id": "f1", "report": "report", "ground_truth": "fake"}],
         repository_path=repo,
         fail_fast=False,
@@ -508,9 +513,9 @@ def test_run_fails_fast_on_execution_error(monkeypatch, tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "README.md").write_text("readme", encoding="utf-8")
-    monkeypatch.setattr(baseline, "call_model", lambda *args, **kwargs: (_ for _ in ()).throw(BaselineError("offline")))
+    monkeypatch.setattr(baseline_module, "call_model", lambda *args, **kwargs: (_ for _ in ()).throw(BaselineError("offline")))
     with pytest.raises(BaselineError, match="failed: offline"):
-        baseline.run_baseline(
+        run_baseline(
             [{"id": "f1", "report": "report", "ground_truth": "fake"}],
             repository_path=repo,
         )
@@ -537,20 +542,29 @@ def test_api_client_retries_rate_limit_and_parses_usage(monkeypatch):
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5},
             }).encode()
 
-    def fake_urlopen(request, timeout):
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise urllib.error.HTTPError(
-                request.full_url, 429, "rate limited", HTTPMessage(), io.BytesIO(b"try later")
-            )
-        return FakeResponse()
+    class MockOpener:
+        def __init__(self):
+            self.calls = {"count": 0}
 
-    monkeypatch.setattr(baseline.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(baseline.time, "sleep", lambda _: None)
+        def open(self, request, timeout=None):
+            self.calls["count"] += 1
+            if self.calls["count"] == 1:
+                raise urllib.error.HTTPError(
+                    request.full_url, 429, "rate limited", HTTPMessage(), io.BytesIO(b"try later")
+                )
+            return FakeResponse()
+
+    mock_opener = MockOpener()
+    monkeypatch.setattr(
+        baseline_module.urllib.request,
+        "build_opener",
+        lambda *args, **kwargs: mock_opener,
+    )
+    monkeypatch.setattr(baseline_module.time, "sleep", lambda _: None)
     monkeypatch.setenv("TRIAGE0_BASELINE_INPUT_USD_PER_1M", "1.0")
     monkeypatch.setenv("TRIAGE0_BASELINE_OUTPUT_USD_PER_1M", "2.0")
-    result = baseline.call_model("prompt", model="fake-model", api_key="test", max_retries=1)
-    assert calls["count"] == 2
+    result = baseline_module.call_model("prompt", model="fake-model", api_key="test", max_retries=1)
+    assert mock_opener.calls["count"] == 2
     assert result["verdict"] == "VALID"
     assert result["prompt_tokens"] == 10
     assert result["completion_tokens"] == 5
@@ -561,7 +575,7 @@ def test_call_model_rejects_invalid_api_envelope(monkeypatch):
     _install_api_response(monkeypatch, {"model": "fake-model"})
 
     with pytest.raises(BaselineError, match="Unexpected model API response shape"):
-        baseline.call_model("prompt", model="fake-model", api_key="test")
+        baseline_module.call_model("prompt", model="fake-model", api_key="test")
 
 
 def test_call_model_rejects_non_text_content(monkeypatch):
@@ -570,7 +584,7 @@ def test_call_model_rejects_non_text_content(monkeypatch):
     })
 
     with pytest.raises(BaselineError, match="not text"):
-        baseline.call_model("prompt", model="fake-model", api_key="test")
+        baseline_module.call_model("prompt", model="fake-model", api_key="test")
 
 
 def test_call_model_rejects_invalid_message_content_type(monkeypatch):
@@ -579,7 +593,7 @@ def test_call_model_rejects_invalid_message_content_type(monkeypatch):
     })
 
     with pytest.raises(BaselineError, match="Unexpected model API response shape"):
-        baseline.call_model("prompt", model="fake-model", api_key="test")
+        baseline_module.call_model("prompt", model="fake-model", api_key="test")
 
 
 def test_call_model_rejects_invalid_api_json(monkeypatch):
@@ -593,14 +607,18 @@ def test_call_model_rejects_invalid_api_json(monkeypatch):
         def read(self):
             return b"not json"
 
+    class MockOpener:
+        def open(self, request, timeout=None):
+            return FakeResponse()
+
     monkeypatch.setattr(
-        baseline.urllib.request,
-        "urlopen",
-        lambda request, timeout: FakeResponse(),
+        baseline_module.urllib.request,
+        "build_opener",
+        lambda *args, **kwargs: MockOpener(),
     )
 
     with pytest.raises(BaselineError, match="invalid JSON"):
-        baseline.call_model("prompt", model="fake-model", api_key="test")
+        baseline_module.call_model("prompt", model="fake-model", api_key="test")
 
 
 def test_call_model_rejects_nonstandard_json_constants_in_envelope(monkeypatch):
@@ -618,14 +636,18 @@ def test_call_model_rejects_nonstandard_json_constants_in_envelope(monkeypatch):
                 b'"usage": {"prompt_tokens": NaN}}'
             )
 
+    class MockOpener:
+        def open(self, request, timeout=None):
+            return FakeResponse()
+
     monkeypatch.setattr(
-        baseline.urllib.request,
-        "urlopen",
-        lambda request, timeout: FakeResponse(),
+        baseline_module.urllib.request,
+        "build_opener",
+        lambda *args, **kwargs: MockOpener(),
     )
 
     with pytest.raises(BaselineError, match="invalid JSON"):
-        baseline.call_model("prompt", model="fake-model", api_key="test")
+        baseline_module.call_model("prompt", model="fake-model", api_key="test")
 
 
 def test_call_model_normalizes_invalid_usage(monkeypatch):
@@ -640,7 +662,7 @@ def test_call_model_normalizes_invalid_usage(monkeypatch):
         },
     })
 
-    result = baseline.call_model("prompt", model="fake-model", api_key="test")
+    result = baseline_module.call_model("prompt", model="fake-model", api_key="test")
 
     assert result["prompt_tokens"] == 7
     assert result["completion_tokens"] is None
@@ -653,7 +675,7 @@ def test_call_model_records_malformed_model_output_as_uncertain(monkeypatch):
         "choices": [{"message": {"content": "not json"}}],
     })
 
-    result = baseline.call_model("prompt", model="fake-model", api_key="test")
+    result = baseline_module.call_model("prompt", model="fake-model", api_key="test")
 
     assert result["verdict"] == "UNCERTAIN"
     assert result["verdict_parse_error"] is not None
@@ -665,18 +687,20 @@ def test_call_model_requires_api_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     with pytest.raises(BaselineError, match="No API key"):
-        baseline.call_model("prompt", model="fake-model")
+        baseline_module.call_model("prompt", model="fake-model")
 
 
 def test_call_model_validates_pricing_before_request(monkeypatch):
     monkeypatch.setenv("TRIAGE0_BASELINE_INPUT_USD_PER_1M", "-1")
+    class MockOpener:
+        def open(self, request, timeout=None):
+            raise AssertionError("no request should be made")
+
     monkeypatch.setattr(
-        baseline.urllib.request,
-        "urlopen",
-        lambda request, timeout: (_ for _ in ()).throw(
-            AssertionError("no request should be made")
-        ),
+        baseline_module.urllib.request,
+        "build_opener",
+        lambda *args, **kwargs: MockOpener(),
     )
 
     with pytest.raises(BaselineError, match="non-negative"):
-        baseline.call_model("prompt", model="fake-model", api_key="test")
+        baseline_module.call_model("prompt", model="fake-model", api_key="test")
