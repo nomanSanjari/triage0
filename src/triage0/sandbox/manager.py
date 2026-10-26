@@ -1,8 +1,9 @@
 """Sandbox orchestration: version text in, isolated container with that code out.
 
-The order is always: resolve the tag, check it out into a disposable
-worktree, start a container with that worktree mounted, run commands,
-then remove the container and the worktree, even after errors and timeouts.
+The order is always: get the tag (open() is given one; session() resolves it
+from free-text version text), check it out into a disposable worktree, start
+a container with that worktree mounted, run commands, then remove the
+container and the worktree, even after errors and timeouts.
 
 The container backend (DockerLocal) only knows how to start/exec/stop.
 This module decides what happens and guarantees the cleanup.
@@ -104,8 +105,9 @@ def project_from_url(url: str) -> str:
 class SandboxManager:
     """Ties the repo cache, tag resolution and container backend together.
 
-    The provider is typed as DockerLocal for now; it becomes the
-    SandboxProvider protocol once task 1.1 defines it.
+    Implements the SandboxProvider protocol (core/interfaces.py) through
+    open(). `provider` is the container backend; it is typed as DockerLocal
+    until a second backend exists.
     """
 
     def __init__(
@@ -114,6 +116,23 @@ class SandboxManager:
         self.repo_cache = repo_cache
         self.provider = provider
         self.image = image
+
+    @contextmanager
+    def open(
+        self, repo_url: str, ref: str, *, network_disabled: bool = True
+    ) -> Iterator[Session]:
+        """Clone/fetch `repo_url` on the host, then open a session at tag `ref`.
+
+        `ref` must be a tag name that exists in the repo; branches and commit
+        ids are not accepted. `network_disabled` exists only because the
+        SandboxProvider protocol has it: sandboxes never get a network, so
+        False is refused before anything is cloned or started.
+        """
+        if not network_disabled:
+            raise ValueError("sandboxes never have network access; network_disabled=False is not supported")
+        bare_repo = self.repo_cache.ensure_clone(repo_url)
+        with self._open_tag(bare_repo, ref) as session:
+            yield session
 
     @contextmanager
     def session(
@@ -133,17 +152,23 @@ class SandboxManager:
     def session_for_repo(
         self, bare_repo: Path, project: str, version_text: str
     ) -> Iterator[Session]:
-        """Open a session on a repo already on disk (no network access).
-
-        ExitStack runs cleanups in reverse order: the container is removed
-        first, then the worktree it was using.
-        """
+        """Open a session on a repo already on disk (no network access)."""
         resolution = resolve_tag(version_text, project, list_tags(bare_repo))
         if resolution.status is not TagResolutionStatus.RESOLVED or resolution.tag is None:
             raise TagNotResolved(resolution)
+        with self._open_tag(bare_repo, resolution.tag) as session:
+            yield session
 
+    @contextmanager
+    def _open_tag(self, bare_repo: Path, tag: str) -> Iterator[Session]:
+        """Worktree + container for one tag of a repo on disk.
+
+        ExitStack runs cleanups in reverse order: the container is removed
+        first, then the worktree it was using. worktree() refuses any `tag`
+        that is not in the repo's own tag list.
+        """
         with ExitStack() as cleanup:
-            wt = cleanup.enter_context(worktree(bare_repo, resolution.tag))
+            wt = cleanup.enter_context(worktree(bare_repo, tag))
             container_id = self.provider.start(self.image, wt.path)
             cleanup.callback(self.provider.stop, container_id)
             yield Session(

@@ -1,26 +1,35 @@
-"""Tests for Session: the translation to evidence types, with no Docker.
+"""Tests for Session and SandboxManager that need no Docker.
 
-DockerLocal.exec is replaced by a function that returns a canned result.
+DockerLocal.exec/start and RepoCache.ensure_clone are replaced by functions
+that return canned values or record that they were called.
 """
 
 from __future__ import annotations
+
+import inspect
+from collections.abc import Sequence
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from triage0.core.evidence import EvidenceResult, EvidenceStatus
-from triage0.sandbox.manager import TIMEOUT_EXIT_CODE, Session
+from triage0.core.interfaces import SandboxProvider, SandboxSession
+from triage0.sandbox.manager import TIMEOUT_EXIT_CODE, SandboxManager, Session
 from triage0.sandbox.providers.docker_local import DockerLocal, ExecResult
+from triage0.storage.repo_cache import RepoCache
 
 TREE_HASH = "a" * 40
 COMMIT = "b" * 40
 
+Call = tuple[str, tuple[str, ...], float | None]
 
-def _session(monkeypatch: pytest.MonkeyPatch, result: ExecResult) -> tuple[Session, list[tuple]]:
+
+def _session(monkeypatch: pytest.MonkeyPatch, result: ExecResult) -> tuple[Session, list[Call]]:
     """A Session whose container "runs" every command by returning `result`."""
-    calls: list[tuple] = []
+    calls: list[Call] = []
 
-    def fake_exec(container_id, argv, timeout=None):  # type: ignore[no-untyped-def]
+    def fake_exec(container_id: str, argv: Sequence[str], timeout: float | None = None) -> ExecResult:
         calls.append((container_id, tuple(argv), timeout))
         return result
 
@@ -112,3 +121,64 @@ def test_an_incomplete_proof_cannot_back_a_verdict(
     with pytest.raises(ValidationError, match="incomplete proof"):
         EvidenceResult(status=status, proof=proof)
     assert EvidenceResult.downgrade(status=status, proof=proof).status is EvidenceStatus.CANT_CHECK
+
+
+# --- open(): the SandboxProvider entry point ------------------------------------
+
+
+def test_open_refuses_a_network_before_doing_anything(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+    cache = RepoCache(tmp_path / "cache")
+    provider = DockerLocal()
+
+    def spy_clone(url: str) -> Path:
+        calls.append("clone")
+        return tmp_path
+
+    def spy_start(image: str, src: Path) -> str:
+        calls.append("start")
+        return "c" * 64
+
+    monkeypatch.setattr(cache, "ensure_clone", spy_clone)
+    monkeypatch.setattr(provider, "start", spy_start)
+
+    manager = SandboxManager(cache, provider)
+    with pytest.raises(ValueError, match="never have network access"):
+        with manager.open("https://github.com/curl/curl.git", "curl-8_13_0", network_disabled=False):
+            pass
+    assert calls == []  # nothing cloned, nothing started
+
+
+def test_manager_and_session_satisfy_the_core_protocols(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = SandboxManager(RepoCache(tmp_path / "cache"), DockerLocal())
+    session, _ = _session(monkeypatch, _exec_result())
+    # The annotations are checked by mypy, which compares real signatures;
+    # isinstance on a Protocol only checks that the names exist.
+    provider: SandboxProvider = manager
+    sandbox: SandboxSession = session
+    assert isinstance(provider, SandboxProvider)
+    assert isinstance(sandbox, SandboxSession)
+
+
+@pytest.mark.parametrize(
+    "protocol, implementation, method",
+    [
+        (SandboxProvider, SandboxManager, "open"),
+        (SandboxSession, Session, "run"),
+        (SandboxSession, Session, "seal"),
+    ],
+)
+def test_parameters_match_the_protocol_exactly(
+    protocol: type, implementation: type, method: str
+) -> None:
+    # mypy ignores the names of ordinary positional parameters, so renaming
+    # `ref` to `reference` would pass it but break callers using keywords.
+    def shape(cls: type) -> list[tuple[str, object, object]]:
+        parameters = inspect.signature(getattr(cls, method)).parameters.values()
+        return [(p.name, p.kind, p.default) for p in parameters]
+
+    assert shape(implementation) == shape(protocol)

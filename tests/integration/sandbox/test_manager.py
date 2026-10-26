@@ -24,7 +24,7 @@ from triage0.sandbox.providers.docker_local import (
     SandboxLimits,
     list_sandbox_containers,
 )
-from triage0.storage.repo_cache import RepoCache
+from triage0.storage.repo_cache import RepoCache, RepoCacheError
 
 from .providers.test_docker_local import IMAGE, _image_available
 
@@ -206,3 +206,55 @@ def test_definition_of_done_real_curl(tmp_path: Path, temp_root: Path) -> None:
     assert net.stdout.split() == ["lo"]
     assert session.container_id not in list_sandbox_containers()
     assert list(temp_root.iterdir()) == []
+
+
+# --- open(): the SandboxProvider entry point --------------------------------------
+
+URL = "https://github.com/curl/curl.git"
+
+
+@pytest.fixture
+def offline_manager(
+    manager: SandboxManager, bare_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> SandboxManager:
+    """A manager whose "clone" is the local fixture repo, so no network is used."""
+    monkeypatch.setattr(manager.repo_cache, "ensure_clone", lambda url: bare_repo)
+    return manager
+
+
+def test_open_runs_against_the_given_tag(
+    offline_manager: SandboxManager, bare_repo: Path, temp_root: Path
+) -> None:
+    with offline_manager.open(URL, "curl-8_14_0") as session:
+        result = session.run(["cat", f"/src/{VERSION_FILE}"])
+        net = session.run(["ls", "/sys/class/net"])
+    assert session.tag == "curl-8_14_0"
+    assert session.commit == _git(bare_repo, "rev-parse", "curl-8_14_0^{commit}")
+    assert '"8.14.0"' in result.stdout
+    assert net.stdout.split() == ["lo"]
+    _assert_nothing_left(bare_repo, temp_root, session.container_id)
+
+
+@pytest.mark.parametrize(
+    "ref", ["curl-9_9_9", "main", "refs/tags/curl-8_13_0", "--upload-pack=x", "8.13.0"]
+)
+def test_open_refuses_anything_but_an_existing_tag(
+    offline_manager: SandboxManager, bare_repo: Path, temp_root: Path, ref: str
+) -> None:
+    before = set(list_sandbox_containers())
+    with pytest.raises(RepoCacheError):
+        with offline_manager.open(URL, ref):
+            pass
+    assert set(list_sandbox_containers()) == before
+    _assert_nothing_left(bare_repo, temp_root)
+
+
+def test_open_with_network_enabled_starts_nothing(
+    offline_manager: SandboxManager, bare_repo: Path, temp_root: Path
+) -> None:
+    before = set(list_sandbox_containers())
+    with pytest.raises(ValueError, match="never have network access"):
+        with offline_manager.open(URL, "curl-8_13_0", network_disabled=False):
+            pass
+    assert set(list_sandbox_containers()) == before
+    _assert_nothing_left(bare_repo, temp_root)
