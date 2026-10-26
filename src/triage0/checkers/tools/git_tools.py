@@ -92,13 +92,20 @@ def _fmt(version: Version) -> str:
     return ".".join(str(part) for part in version)
 
 
+def _looks_like_ip_address(version: Version) -> bool:
+    """Four numbers that are each 0-255 are far more likely an IPv4 address."""
+    return len(version) == 4 and all(part <= 255 for part in version)
+
+
 def find_versions(text: str, project: str) -> set[Version]:
     """Return the release versions the report text mentions for `project`.
 
     Versions written right after the project name ("curl 8.13.0",
     "curl/8.13.0") win. Only if there are none do we fall back to every
     bare version in the text, since reports also mention versions of other
-    software (OpenSSL/3.0.2, HTTP/1.1, IP addresses).
+    software (OpenSSL/3.0.2, HTTP/1.1) and IP addresses. In the fallback,
+    IPv4-looking values are skipped; a real four-part version found there
+    is skipped too, which ends in CANT_CHECK rather than a wrong tag.
     """
     if not _PROJECT_RE.fullmatch(project):
         raise ValueError(f"invalid project name: {project!r}")
@@ -109,7 +116,8 @@ def find_versions(text: str, project: str) -> set[Version]:
     found = {_to_version(m) for m in anchored.findall(text)}
     if found:
         return found
-    return {_to_version(m) for m in _BARE_VERSION_RE.findall(text)}
+    bare = {_to_version(m) for m in _BARE_VERSION_RE.findall(text)}
+    return {v for v in bare if not _looks_like_ip_address(v)}
 
 
 def tag_version(tag: str) -> Version | None:

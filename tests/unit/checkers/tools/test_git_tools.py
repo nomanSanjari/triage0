@@ -55,6 +55,34 @@ def test_find_versions_falls_back_to_bare_versions() -> None:
     assert find_versions("Affected version: 8.13.0.", "curl") == {(8, 13, 0)}
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "server at 127.0.0.1 running 8.13.0",
+        "connect to 10.0.0.1:8080 and 8.13.0",
+        "gateway 192.168.1.1. Affected: 8.13.0",
+    ],
+)
+def test_find_versions_fallback_ignores_ip_addresses(text: str) -> None:
+    assert find_versions(text, "curl") == {(8, 13, 0)}
+
+
+def test_find_versions_fallback_with_only_an_ip_address_finds_nothing() -> None:
+    assert find_versions("crash when connecting to 127.0.0.1", "curl") == set()
+
+
+def test_find_versions_ip_filter_only_applies_to_four_numbers_up_to_255() -> None:
+    assert find_versions("build 1.2.3.400", "curl") == {(1, 2, 3, 400)}  # 400 is no IPv4 part
+    assert find_versions("build 1.2.3", "curl") == {(1, 2, 3)}  # three numbers
+    assert find_versions("curl 1.2.3.4", "curl") == {(1, 2, 3, 4)}  # named after the project
+
+
+def test_resolve_tag_with_an_ip_address_in_the_text() -> None:
+    result = resolve_tag("server at 127.0.0.1 running 8.13.0", "curl", CURL_TAGS)
+    assert result.status is TagResolutionStatus.RESOLVED
+    assert result.tag == "curl-8_13_0"
+
+
 def test_find_versions_rejects_dev_builds() -> None:
     # 8.13.0-DEV means "built from git": any commit after 8.12.x up to the
     # 8.13.0 tag. We can't know which, so we must not pick a tag.
