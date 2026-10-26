@@ -68,6 +68,20 @@ def test_worktree_checks_out_the_exact_tag(bare_repo: Path, temp_root: Path) -> 
         assert '"8.14.0"' in (wt.path / VERSION_FILE).read_text()
 
 
+def test_worktree_records_the_commit_the_tag_points_to(bare_repo: Path, temp_root: Path) -> None:
+    # The fixture tags are annotated, so the tag object itself has a different
+    # id than the commit; we must record the commit.
+    tag_object = _git(bare_repo, "rev-parse", "curl-8_13_0")
+    expected_commit = _git(bare_repo, "rev-parse", "curl-8_13_0^{commit}")
+    assert tag_object != expected_commit
+    with worktree(bare_repo, "curl-8_13_0") as first:
+        assert first.commit == expected_commit
+        assert len(first.commit) == 40
+    with worktree(bare_repo, "curl-8_14_0") as second:
+        assert second.commit != first.commit
+        assert second.commit == _git(bare_repo, "rev-parse", "curl-8_14_0^{commit}")
+
+
 def test_worktree_is_removed_after_normal_exit(bare_repo: Path, temp_root: Path) -> None:
     with worktree(bare_repo, "curl-8_13_0") as wt:
         assert wt.path.exists()

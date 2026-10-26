@@ -44,12 +44,14 @@ class Worktree:
     """A checked-out copy of one tag.
 
     `tree_hash` fingerprints the exact file contents; evidence records it
-    so anyone can confirm which code a check ran against.
+    so anyone can confirm which code a check ran against. `commit` is the
+    commit the tag points to, so the same code can be found in the history.
     """
 
     path: Path
     tag: str
     tree_hash: str
+    commit: str
 
 
 def cache_subpath(url: str) -> Path:
@@ -125,7 +127,9 @@ def worktree(bare_repo: Path, tag: str) -> Iterator[Worktree]:
     if tag not in list_tags(bare_repo):
         raise RepoCacheError(f"tag not found in repo: {tag}")
     ref = f"refs/tags/{tag}"
-    tree_hash = run_git(["rev-parse", "--verify", f"{ref}^{{tree}}"], repo=bare_repo).stdout.strip()
+    # ^{tree} / ^{commit} look through annotated tag objects to what they name.
+    tree_hash = _resolve_object(bare_repo, f"{ref}^{{tree}}")
+    commit = _resolve_object(bare_repo, f"{ref}^{{commit}}")
 
     # Forget worktrees whose folders vanished (e.g. after a hard crash).
     run_git(["worktree", "prune"], repo=bare_repo)
@@ -136,9 +140,14 @@ def worktree(bare_repo: Path, tag: str) -> Iterator[Worktree]:
             repo=bare_repo,
             timeout=WORKTREE_TIMEOUT_SECONDS,
         )
-        yield Worktree(path=path, tag=tag, tree_hash=tree_hash)
+        yield Worktree(path=path, tag=tag, tree_hash=tree_hash, commit=commit)
     finally:
         _remove_worktree(bare_repo, path)
+
+
+def _resolve_object(bare_repo: Path, spec: str) -> str:
+    """Return the full object id git finds for `spec` (fails if there is none)."""
+    return run_git(["rev-parse", "--verify", spec], repo=bare_repo).stdout.strip()
 
 
 def _remove_worktree(bare_repo: Path, path: Path) -> None:
