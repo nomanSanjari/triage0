@@ -10,6 +10,7 @@ import pytest
 from triage0.sandbox.providers.docker_local import (
     MAX_OUTPUT_BYTES,
     SANDBOX_LABEL,
+    DockerLocal,
     SandboxLimits,
     build_run_args,
     run_capped,
@@ -104,3 +105,14 @@ def test_run_capped_keeps_only_the_first_part_of_huge_output() -> None:
 def test_run_capped_kills_commands_that_run_too_long() -> None:
     code, _, _, _ = run_capped([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
     assert code is None
+
+
+# --- exec(): argv must be a list ------------------------------------------------
+
+
+@pytest.mark.parametrize("argv", ["ls -la", b"ls"])
+def test_exec_rejects_a_single_string_as_argv(argv: str | bytes) -> None:
+    # Unpacked into the docker command, "ls -la" would become 'l','s',' ','-',...
+    # The check runs before any docker call, so this needs no Docker.
+    with pytest.raises(TypeError, match="not a single string"):
+        DockerLocal().exec("0" * 64, argv)  # type: ignore[arg-type]

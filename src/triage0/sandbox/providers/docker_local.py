@@ -185,6 +185,9 @@ class DockerLocal:
         On timeout the whole container is removed: a runaway process would
         otherwise keep running inside it. Later exec() calls will then fail.
         """
+        if isinstance(argv, (str, bytes)):
+            # *"ls -la" would be split into single characters, not words.
+            raise TypeError("argv must be a list of arguments, not a single string")
         if not argv:
             raise ValueError("argv must not be empty")
         _check_container_id(container_id)

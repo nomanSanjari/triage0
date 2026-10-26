@@ -12,11 +12,15 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from triage0.checkers.tools.git_tools import TagResolutionStatus
+from triage0.core.evidence import EvidenceResult, EvidenceStatus
 from triage0.sandbox.manager import SandboxManager, TagNotResolved, project_from_url
 from triage0.sandbox.providers.docker_local import (
+    MAX_OUTPUT_BYTES,
     DockerLocal,
+    SandboxError,
     SandboxLimits,
     list_sandbox_containers,
 )
@@ -85,6 +89,7 @@ def test_session_runs_against_the_exact_version(
         assert container_id in list_sandbox_containers()
     assert session.tag == "curl-8_13_0"
     assert session.tree_hash == _git(bare_repo, "rev-parse", "curl-8_13_0^{tree}")
+    assert session.commit == _git(bare_repo, "rev-parse", "curl-8_13_0^{commit}")
     assert result.exit_code == 0 and '"8.13.0"' in result.stdout
     assert net.stdout.split() == ["lo"]
     _assert_nothing_left(bare_repo, temp_root, container_id)
@@ -106,8 +111,48 @@ def test_cleanup_happens_after_a_timeout(
     manager: SandboxManager, bare_repo: Path, temp_root: Path
 ) -> None:
     with manager.session_for_repo(bare_repo, "curl", "curl 8.13.0") as session:
-        result = session.run(["sleep", "60"], timeout=2)
-    assert result.timed_out
+        result = session.run(["sleep", "60"], timeout_s=2)
+    assert result.timed_out and result.exit_code == -9
+    _assert_nothing_left(bare_repo, temp_root, session.container_id)
+
+
+# --- seal(): proofs from a real container ----------------------------------------
+
+
+def test_seal_produces_a_proof_that_can_back_a_verdict(
+    manager: SandboxManager, bare_repo: Path, temp_root: Path
+) -> None:
+    with manager.session_for_repo(bare_repo, "curl", "curl 8.13.0") as session:
+        proof = session.seal(["grep", "-m1", "^#define LIBCURL_VERSION ", f"/src/{VERSION_FILE}"])
+        tree_hash, commit = session.tree_hash, session.commit
+    assert (proof.exit_code, proof.git_tree_hash, proof.commit, proof.workdir) == (0, tree_hash, commit, "/src")
+    assert '"8.13.0"' in (proof.stdout or "")
+    assert EvidenceResult(status=EvidenceStatus.CONFIRMED, proof=proof).is_terminal
+    _assert_nothing_left(bare_repo, temp_root, session.container_id)
+
+
+@pytest.mark.parametrize("status", [EvidenceStatus.CONFIRMED, EvidenceStatus.CONTRADICTED])
+def test_a_truncated_proof_cannot_back_a_verdict(
+    manager: SandboxManager, bare_repo: Path, temp_root: Path, status: EvidenceStatus
+) -> None:
+    # 3 MiB of output is more than the sandbox keeps, so the proof is incomplete.
+    with manager.session_for_repo(bare_repo, "curl", "curl 8.13.0") as session:
+        proof = session.seal(["head", "-c", str(MAX_OUTPUT_BYTES * 3), "/dev/zero"])
+    assert proof.truncated and not proof.timed_out
+    with pytest.raises(ValidationError, match="incomplete proof"):
+        EvidenceResult(status=status, proof=proof)
+
+
+def test_a_timed_out_proof_cannot_back_a_verdict(
+    manager: SandboxManager, bare_repo: Path, temp_root: Path
+) -> None:
+    with manager.session_for_repo(bare_repo, "curl", "curl 8.13.0") as session:
+        proof = session.seal(["sleep", "60"], timeout_s=2)
+        with pytest.raises(SandboxError):  # the container was removed on timeout
+            session.run(["true"])
+    assert proof.timed_out and proof.exit_code == -9
+    with pytest.raises(ValidationError, match="incomplete proof"):
+        EvidenceResult(status=EvidenceStatus.CONTRADICTED, proof=proof)
     _assert_nothing_left(bare_repo, temp_root, session.container_id)
 
 

@@ -10,7 +10,8 @@ This module decides what happens and guarantees the cleanup.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+import os
+from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,10 +22,16 @@ from triage0.checkers.tools.git_tools import (
     list_tags,
     resolve_tag,
 )
-from triage0.sandbox.providers.docker_local import DockerLocal, ExecResult
+from triage0.core.evidence import Argv, CommandResult, DeterministicProof
+from triage0.sandbox.providers.docker_local import SANDBOX_SRC, DockerLocal, ExecResult
 from triage0.storage.repo_cache import RepoCache, cache_subpath, worktree
 
 DEFAULT_IMAGE = "triage0-sandbox:dev"
+
+# CommandResult needs an int exit code, but a command we killed on timeout has
+# none. -9 is how a process killed by SIGKILL is conventionally reported; the
+# real signal that it timed out is the `timed_out` flag.
+TIMEOUT_EXIT_CODE = -9
 
 
 class TagNotResolved(Exception):
@@ -39,22 +46,54 @@ class TagNotResolved(Exception):
         self.resolution = resolution
 
 
+def _to_command_result(result: ExecResult) -> CommandResult:
+    """Translate the container backend's result into the shared evidence type."""
+    return CommandResult(
+        # An odd program path like "/usr/bin/" has an empty basename.
+        tool=os.path.basename(result.argv[0]) or result.argv[0],
+        argv=result.argv,
+        exit_code=TIMEOUT_EXIT_CODE if result.exit_code is None else result.exit_code,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        timed_out=result.timed_out,
+        truncated=result.truncated,
+    )
+
+
 @dataclass(frozen=True)
 class Session:
     """A running sandbox with one exact version of the code at /src.
 
-    `tree_hash` identifies that code; evidence should record it alongside
-    each command and exit code.
+    Implements the SandboxSession protocol (core/interfaces.py). `tree_hash`
+    and `commit` identify the code; evidence records them with each command.
+    After a command times out the container is gone, so later run()/seal()
+    calls raise SandboxError instead of continuing.
     """
 
     tag: str
     tree_hash: str
+    commit: str
     container_id: str
     provider: DockerLocal
 
-    def run(self, argv: Sequence[str], timeout: float | None = None) -> ExecResult:
+    def run(self, argv: Argv, *, timeout_s: float | None = None) -> CommandResult:
         """Run one command (no shell) inside the sandbox."""
-        return self.provider.exec(self.container_id, argv, timeout)
+        return _to_command_result(self.provider.exec(self.container_id, argv, timeout_s))
+
+    def seal(self, argv: Argv, *, timeout_s: float | None = None) -> DeterministicProof:
+        """Run the decisive command and seal the result as proof.
+
+        This does not compare two runs; checking that a result is repeatable
+        belongs to the proof gate. A timed-out or truncated run is still
+        sealed, with those flags set, so EvidenceResult can refuse to base a
+        CONFIRMED/CONTRADICTED verdict on it.
+        """
+        return DeterministicProof.from_command_result(
+            self.run(argv, timeout_s=timeout_s),
+            git_tree_hash=self.tree_hash,
+            commit=self.commit,
+            workdir=SANDBOX_SRC,
+        )
 
 
 def project_from_url(url: str) -> str:
@@ -110,11 +149,12 @@ class SandboxManager:
             yield Session(
                 tag=wt.tag,
                 tree_hash=wt.tree_hash,
+                commit=wt.commit,
                 container_id=container_id,
                 provider=self.provider,
             )
 
-    def run_once(self, repo_url: str, version_text: str, argv: Sequence[str]) -> ExecResult:
+    def run_once(self, repo_url: str, version_text: str, argv: Argv) -> CommandResult:
         """Start a sandbox for one version, run one command, clean everything up."""
         with self.session(repo_url, version_text) as session:
             return session.run(argv)
