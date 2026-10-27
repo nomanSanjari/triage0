@@ -20,7 +20,7 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from pydantic import (
     BaseModel,
@@ -40,35 +40,73 @@ from triage0.eval.metrics import (
 
 
 class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Follow only same-origin redirects; refuse cross-origin or HTTPS->HTTP downgrade.
+    """Follow same-origin redirects; refuse cross-origin and HTTPS->HTTP redirects.
 
-    When the origin changes, the Authorization header is stripped to avoid leaking
-    credentials to unrelated hosts. This preserves compatibility with legitimate
-    same-origin redirects (trailing slashes, API gateway rewrites) while blocking
-    the credential-forwarding vulnerability in the default handler.
+    The ``Authorization`` header is only ever sent back to the origin it was
+    addressed to. Cross-origin and downgrade redirects raise ``HTTPError``
+    instead of being followed with credentials stripped, so a misconfigured
+    endpoint fails explicitly rather than silently sending the request
+    somewhere else.
     """
 
-    def __init__(self, original_origin: tuple[str, str, int] | None = None):
-        self._original_origin = original_origin
+    def __init__(self, original_url: str | None = None):
+        self._original_origin = self._origin(original_url) if original_url else None
 
     def _origin(self, url: str) -> tuple[str, str, int] | None:
         try:
             parsed = urlparse(url)
-            return (parsed.scheme, parsed.hostname or "", parsed.port or (443 if parsed.scheme == "https" else 80))
-        except Exception:
+            if not parsed.scheme or not parsed.hostname:
+                return None
+            default_port = 443 if parsed.scheme == "https" else 80
+            return (parsed.scheme, parsed.hostname, parsed.port or default_port)
+        except ValueError:
             return None
 
     def _is_same_origin(self, new_url: str) -> bool:
         if self._original_origin is None:
             return False
-        new_origin = self._origin(new_url)
-        return new_origin == self._original_origin
+        return self._origin(new_url) == self._original_origin
 
     def _is_downgrade(self, new_url: str) -> bool:
         if self._original_origin is None:
             return False
         new_origin = self._origin(new_url)
-        return self._original_origin[0] == "https" and new_origin is not None and new_origin[0] == "http"
+        return (
+            self._original_origin[0] == "https"
+            and new_origin is not None
+            and new_origin[0] == "http"
+        )
+
+    def _resolve_location(self, req: urllib.request.Request, headers: Any) -> str | None:
+        location = headers.get("Location", "")
+        if not location or not isinstance(location, str):
+            return None
+        resolved = urljoin(req.full_url, location.strip())
+        return resolved or None
+
+    def _refuse_unsafe_redirect(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        headers: Any,
+        new_url: str,
+    ) -> None:
+        if self._is_downgrade(new_url):
+            raise urllib.error.HTTPError(
+                req.full_url,
+                403,
+                f"HTTPS->HTTP downgrade redirect refused: {new_url}",
+                headers,
+                fp,
+            )
+        if not self._is_same_origin(new_url):
+            raise urllib.error.HTTPError(
+                req.full_url,
+                403,
+                f"Cross-origin redirect refused: {new_url}",
+                headers,
+                fp,
+            )
 
     def http_error_302(
         self,
@@ -78,25 +116,62 @@ class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
         msg: str,
         headers: Any,
     ) -> Any:
-        new_url = headers.get("Location", "")
-        if not new_url:
+        new_url = self._resolve_location(req, headers)
+        if new_url is None:
             return super().http_error_302(req, fp, code, msg, headers)
-        if self._is_downgrade(new_url):
-            raise urllib.error.HTTPError(req.full_url, 403, "HTTPS->HTTP downgrade redirect refused", headers, fp)
-        if not self._is_same_origin(new_url):
-            # Strip Authorization when redirecting to a different origin
-            req = urllib.request.Request(
-                new_url,
-                data=req.data,
-                headers={k: v for k, v in req.header_items() if k.lower() != "authorization"},
-                method=req.get_method(),
-            )
+        self._refuse_unsafe_redirect(req, fp, headers, new_url)
+        # Same-origin redirects keep the Authorization header and the timeout
+        # that OpenerDirector.open() stored on the original request.
         return super().http_error_302(req, fp, code, msg, headers)
 
     http_error_301 = http_error_302
     http_error_303 = http_error_302
-    http_error_307 = http_error_302
-    http_error_308 = http_error_302
+
+    def _follow_preserving_method(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+    ) -> Any:
+        new_url = self._resolve_location(req, headers)
+        if new_url is None:
+            return super().http_error_302(req, fp, code, msg, headers)
+        self._refuse_unsafe_redirect(req, fp, headers, new_url)
+
+        new_request = urllib.request.Request(
+            new_url,
+            data=req.data,
+            headers=dict(req.header_items()),
+            origin_req_host=req.origin_req_host,
+            unverifiable=True,
+            method=req.get_method(),
+        )
+        redirect_dict = getattr(req, "redirect_dict", {})
+        visited = redirect_dict.get(new_url, 0)
+        if visited >= self.max_repeats or len(redirect_dict) >= self.max_redirections:
+            raise urllib.error.HTTPError(
+                new_url, code, "Redirect loop detected", headers, fp
+            )
+        setattr(new_request, "redirect_dict", {**redirect_dict, new_url: visited + 1})
+
+        timeout = getattr(req, "timeout", None)
+        if timeout is None:
+            return self.parent.open(new_request)
+        return self.parent.open(new_request, timeout=timeout)
+
+    def http_error_307(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+    ) -> Any:
+        return self._follow_preserving_method(req, fp, code, msg, headers)
+
+    http_error_308 = http_error_307
 
 __all__ = [
     "BaselineError",
@@ -1063,7 +1138,7 @@ def call_model(
 
     # Build a custom opener with same-origin redirect handling to avoid leaking
     # Authorization headers on cross-origin redirects or HTTPS->HTTP downgrades.
-    redirect_handler = _SameOriginRedirectHandler(_SameOriginRedirectHandler()._origin(url))
+    redirect_handler = _SameOriginRedirectHandler(url)
     opener = urllib.request.build_opener(redirect_handler)
 
     body = {
