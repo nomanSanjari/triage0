@@ -126,7 +126,10 @@ class NormalizedReport(DomainModel):
     def content_hash(self) -> str:
         """Stable SHA-256 of the normalized body, used for deduplication."""
 
-        return sha256(self.body.encode("utf-8")).hexdigest()
+        from triage0.intake._common import normalize_newlines
+
+        canonical = normalize_newlines(self.body).strip()
+        return sha256(canonical.encode("utf-8")).hexdigest()
 
     @model_validator(mode="before")
     @classmethod

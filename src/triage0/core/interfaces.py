@@ -52,6 +52,7 @@ class IntakeAdapter(Protocol):
         payload: str | bytes | Mapping[str, Any],
         *,
         report_id: str | None = None,
+        forced_source: ReportSource | None = None,
     ) -> NormalizedReport:
         """Parse ``payload`` into the shared report shape."""
         ...

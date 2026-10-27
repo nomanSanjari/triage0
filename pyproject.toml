@@ -7,7 +7,10 @@ name = "triage0"
 version = "0.1.0"
 description = "Deterministic evidence checker for AI-written bug reports"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.7,<3"]
+dependencies = ["pydantic>=2.7,<3", "typer>=0.16,<1"]
+
+[project.scripts]
+triage0 = "triage0.cli.main:app"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "mypy>=1.10"]
@@ -25,4 +28,4 @@ strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
 explicit_package_bases = true
-files = ["src/triage0/core"]
+files = ["src/triage0/core", "src/triage0/intake", "src/triage0/cli"]
