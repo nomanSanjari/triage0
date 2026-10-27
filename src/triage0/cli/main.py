@@ -1,134 +1,272 @@
-"""Command-line entry point for triage0's LLM-only baseline."""
+"""Command-line entry point for triage0.
+
+``verify`` is functional as far as intake: it reads a report, picks an adapter
+(auto-detected or explicit), normalizes it, and renders the result.  Extraction
+and sandbox verification are not wired yet, so it says so instead of pretending
+to verify.
+
+``eval`` and ``index`` are argument-complete scaffolds.  They exit with
+``EXIT_NOT_IMPLEMENTED`` rather than ``0`` so a script cannot mistake an
+unimplemented milestone for a successful run.
+"""
+
 from __future__ import annotations
 
-import argparse
-import json
-import os
-import sys
+from enum import StrEnum
 from pathlib import Path
+from typing import Annotated
 
-from triage0.eval.baseline import BaselineError, load_reports, run_baseline
+import typer
 
-# Namespace IDs at the CLI boundary, where the two datasets are combined.
-FAKE_ID_PREFIX = "fake:"
-REAL_ID_PREFIX = "real:"
+from triage0 import __version__
+from triage0.core.models import NormalizedReport, ReportSource
+from triage0.intake import IntakeError, adapter_for, detect_source
 
+EXIT_INTAKE_ERROR = 1
+EXIT_NOT_IMPLEMENTED = 2
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="triage0",
-        description="Evidence checking for vulnerability reports.",
-    )
-    commands = parser.add_subparsers(dest="command", required=True)
-    evaluation = commands.add_parser("eval", help="Run evaluation benchmarks.")
-    evaluation.add_argument(
-        "--baseline", action="store_true",
-        help="Run the naive LLM-only baseline (no triage0 verification tools).",
-    )
-    evaluation.add_argument("--fake-dir", default="datasets/curl_slop_49", help="Confirmed fake reports directory.")
-    evaluation.add_argument("--real-dir", default="datasets/curl_cves_215", help="Real CVE reports directory.")
-    evaluation.add_argument(
-        "--repo", default=os.getenv("TRIAGE0_BASELINE_REPO"),
-        help="Local checkout of the target repository (required).",
-    )
-    evaluation.add_argument(
-        "--repo-ref", default=os.getenv("TRIAGE0_BASELINE_REPO_REF"),
-        help="Git commit/tag/branch to use for reports without their own revision metadata.",
-    )
-    evaluation.add_argument("--model", default=os.getenv("TRIAGE0_BASELINE_MODEL"), help="Model ID.")
-    evaluation.add_argument(
-        "--base-url", default=os.getenv("TRIAGE0_BASELINE_BASE_URL"),
-        help="Optional OpenAI-compatible API base URL.",
-    )
-    evaluation.add_argument("--limit", type=int, default=None, help="Evaluate only the first N reports (useful for smoke tests).")
-    evaluation.add_argument("--output", default="-", help="Output JSON path (default: stdout).")
-    evaluation.add_argument(
-        "--continue-on-error", action="store_true",
-        help="Continue after per-report failures, marking the run incomplete. Default is fail-fast.",
-    )
-    return parser
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=True,
+    help="Deterministic evidence checker for AI-written bug reports.",
+)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.command != "eval":
-        parser.error("Unknown command.")
-    if not args.baseline:
-        parser.error("This milestone implements `triage0 eval --baseline` only.")
-    if not args.repo:
-        parser.error("A local repository checkout is required: pass --repo PATH or set TRIAGE0_BASELINE_REPO.")
-    if args.limit is not None and args.limit < 1:
-        parser.error("--limit must be at least 1.")
+class SourceChoice(StrEnum):
+    """Explicit intake format, or ``auto`` to sniff the payload."""
+
+    auto = "auto"
+    markdown = "markdown"
+    email = "email"
+    hackerone = "hackerone"
+    github = "github"
+
+
+class OutputFormat(StrEnum):
+    """How ``verify`` renders the normalized report."""
+
+    terminal = "terminal"
+    json = "json"
+
+
+_SOURCE_MAP: dict[SourceChoice, ReportSource] = {
+    SourceChoice.markdown: ReportSource.MARKDOWN,
+    SourceChoice.email: ReportSource.EMAIL,
+    SourceChoice.hackerone: ReportSource.HACKERONE,
+    SourceChoice.github: ReportSource.GITHUB_ADVISORY,
+}
+
+
+def _resolve_source(choice: SourceChoice, payload: bytes) -> ReportSource:
+    if choice is SourceChoice.auto:
+        return detect_source(payload)
+    source = _SOURCE_MAP.get(choice)
+    if source is None:
+        raise IntakeError(f"unsupported report source {choice.value!r}")
+    return source
+
+
+def _summary(report: NormalizedReport, repo: str | None) -> str:
+    submitted = (
+        report.submitted_at.isoformat() if report.submitted_at else "-"
+    )
+    lines = [
+        f"report:  {report.report_id}",
+        f"source:  {report.source.value}",
+        f"title:   {report.title or '-'}",
+        f"project: {report.project or '-'}",
+        f"version: {report.reported_version or '-'}",
+        f"date:    {submitted}",
+        f"url:     {report.source_url or '-'}",
+        (
+            "body:    "
+            f"{len(report.body.splitlines())} lines, "
+            f"{len(report.body)} chars"
+        ),
+        f"hash:    {report.content_hash}",
+    ]
+    if repo:
+        lines.append(f"repo:    {repo}")
+    return "\n".join(lines)
+
+
+def _render(
+    report: NormalizedReport, output_format: OutputFormat, repo: str | None
+) -> str:
+    if output_format is OutputFormat.json:
+        return report.model_dump_json(indent=2)
+    return _summary(report, repo)
+
+
+def _emit(text: str, out: Path | None) -> None:
+    if out is None:
+        typer.echo(text)
+        return
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text + "\n", encoding="utf-8")
+    except OSError as exc:
+        typer.secho(
+            f"triage0: error: could not write {out}: {exc}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=EXIT_INTAKE_ERROR) from exc
+    typer.secho(f"Wrote normalized report to {out}", err=True)
+
+
+def _print_version(value: bool) -> None:
+    if value:
+        typer.echo(f"triage0 {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_print_version,
+            is_eager=True,
+            help="Show the version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Deterministic evidence checking for AI-written bug reports."""
+
+
+@app.command()
+def verify(
+    report: Annotated[
+        Path,
+        typer.Option(
+            "--report",
+            "-r",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="Path to the incoming report.",
+        ),
+    ],
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            help="Target repository, recorded for the verification stage.",
+        ),
+    ] = None,
+    source: Annotated[
+        SourceChoice,
+        typer.Option(
+            "--source",
+            help="Input format; auto sniffs Markdown, HackerOne, and GitHub.",
+        ),
+    ] = SourceChoice.auto,
+    output_format: Annotated[
+        OutputFormat,
+        typer.Option("--format", help="Rendering of the normalized report."),
+    ] = OutputFormat.terminal,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Write the result here instead of stdout."),
+    ] = None,
+) -> None:
+    """Normalize a bug report and show what verification will receive."""
 
     try:
-        # The prefixes keep IDs unique when both datasets legitimately reuse an
-        # advisory or report identifier. They are also recorded in the output.
-        fake_reports = load_reports(
-            args.fake_dir, "fake", id_prefix=FAKE_ID_PREFIX
+        payload = report.read_bytes()
+        resolved = _resolve_source(source, payload)
+        adapter = adapter_for(resolved)
+        forced = None if source is SourceChoice.auto else resolved
+        normalized = adapter.normalize(payload, forced_source=forced)
+        if repo is not None:
+            normalized.metadata["repo"] = repo
+    except IntakeError as exc:
+        typer.secho(
+            f"triage0: error: {exc}", fg=typer.colors.RED, err=True
         )
-        real_reports = load_reports(
-            args.real_dir, "real", id_prefix=REAL_ID_PREFIX
+        raise typer.Exit(code=EXIT_INTAKE_ERROR) from exc
+    except OSError as exc:
+        typer.secho(
+            f"triage0: error: could not read {report}: {exc}",
+            fg=typer.colors.RED,
+            err=True,
         )
-        reports = fake_reports + real_reports
-        # Apply the limit after concatenation so it controls the actual run size.
-        if args.limit is not None:
-            reports = reports[:args.limit]
-        payload = run_baseline(
-            reports,
-            repository_path=args.repo,
-            repo_ref=args.repo_ref,
-            model=args.model,
-            base_url=args.base_url,
-            fail_fast=not args.continue_on_error,
-        )
-        # Keep full load counts separate from the subset actually evaluated.
-        payload["dataset"] = {
-            "fake_dir": str(args.fake_dir),
-            "real_dir": str(args.real_dir),
-            "fake_reports_loaded": len(fake_reports),
-            "real_reports_loaded": len(real_reports),
-            "reports_selected_for_run": len(reports),
-            "limit": args.limit,
-            "id_prefixes": {"fake": FAKE_ID_PREFIX, "real": REAL_ID_PREFIX},
-        }
-    except (BaselineError, ValueError, OSError) as exc:
-        print(f"triage0: error: {exc}", file=sys.stderr)
-        return 2
+        raise typer.Exit(code=EXIT_INTAKE_ERROR) from exc
 
-    try:
-        # Strict JSON output: NaN/Infinity are not valid benchmark results.
-        rendered = json.dumps(
-            payload,
-            indent=2,
-            ensure_ascii=False,
-            sort_keys=True,
-            allow_nan=False,
-        )
-    except (TypeError, ValueError) as exc:
-        print(f"triage0: error: could not serialize results: {exc}", file=sys.stderr)
-        return 2
-    if args.output == "-":
-        print(rendered)
-    else:
-        try:
-            output_path = Path(args.output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(rendered + "\n", encoding="utf-8")
-        except OSError as exc:
-            print(f"triage0: error: could not write {args.output}: {exc}", file=sys.stderr)
-            return 2
-        print(f"Wrote baseline results to {output_path}", file=sys.stderr)
-    if not payload["run_complete"]:
-        # Exit 3 distinguishes a partial run from a configuration/API error (2).
-        print(
-            f"triage0: warning: run incomplete; {payload['execution_error_count']} report(s) failed. "
-            "See the output JSON; do not treat this as a complete benchmark.",
-            file=sys.stderr,
-        )
-        return 3
-    return 0
+    _emit(_render(normalized, output_format, repo), out)
+    typer.secho(
+        "intake complete; extraction and verification are not wired yet.",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+
+
+@app.command("eval")
+def eval_suite(
+    suite: Annotated[
+        str,
+        typer.Option("--suite", help="Benchmark suite to replay, e.g. curl."),
+    ],
+    dataset: Annotated[
+        Path | None,
+        typer.Option("--dataset", help="Dataset directory override."),
+    ] = None,
+    include_baseline: Annotated[
+        bool,
+        typer.Option(
+            "--include-baseline",
+            help="Also run the LLM-only baseline.",
+        ),
+    ] = False,
+) -> None:
+    """Replay a labelled benchmark suite (not implemented yet)."""
+
+    details = [f"suite={suite}"]
+    if dataset is not None:
+        details.append(f"dataset={dataset}")
+    if include_baseline:
+        details.append("baseline=on")
+    typer.secho(
+        f"triage0: eval is not implemented yet ({', '.join(details)}).",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+    raise typer.Exit(code=EXIT_NOT_IMPLEMENTED)
+
+
+@app.command()
+def index(
+    osv: Annotated[
+        bool,
+        typer.Option("--osv", help="Sync the OSV advisory index."),
+    ] = False,
+    vectors: Annotated[
+        bool,
+        typer.Option("--vectors", help="Rebuild the report embedding index."),
+    ] = False,
+    db: Annotated[
+        Path | None,
+        typer.Option("--db", help="Database path override."),
+    ] = None,
+) -> None:
+    """Build local advisory and embedding indexes (not implemented yet)."""
+
+    requested = [
+        name
+        for name, enabled in (("osv", osv), ("vectors", vectors))
+        if enabled
+    ]
+    selection = ", ".join(requested) if requested else "all"
+    target = f" db={db}" if db is not None else ""
+    typer.secho(
+        f"triage0: index is not implemented yet ({selection}{target}).",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+    raise typer.Exit(code=EXIT_NOT_IMPLEMENTED)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    app()

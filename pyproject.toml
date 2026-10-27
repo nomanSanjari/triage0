@@ -1,36 +1,32 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "triage0"
 version = "0.1.0"
-description = "Evidence checker for vulnerability reports"
-readme = "README.md"
+description = "Deterministic evidence checker for AI-written bug reports"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.7,<3"]
+dependencies = ["pydantic>=2.7,<3", "typer>=0.16,<1"]
 
 [project.scripts]
-triage0 = "triage0.cli.main:main"
+triage0 = "triage0.cli.main:app"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "mypy>=1.11"]
-
-[tool.setuptools]
-package-dir = {"" = "src"}
+dev = ["pytest>=8", "mypy>=1.10"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
 pythonpath = ["src"]
+testpaths = ["tests"]
 addopts = "-ra"
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["src"]
 mypy_path = "src"
 explicit_package_bases = true
+files = ["src"]

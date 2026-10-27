@@ -25,7 +25,6 @@ library HTTP client. Set:
 ```powershell
 $env:TRIAGE0_BASELINE_API_KEY = "your-api-key"
 $env:TRIAGE0_BASELINE_MODEL = "gpt-4.1"
-$env:TRIAGE0_BASELINE_REPO = "C:\src\curl"
 ```
 
 On bash/zsh:
@@ -33,11 +32,10 @@ On bash/zsh:
 ```bash
 export TRIAGE0_BASELINE_API_KEY="your-api-key"
 export TRIAGE0_BASELINE_MODEL="gpt-4.1"
-export TRIAGE0_BASELINE_REPO="$HOME/src/curl"
 ```
 
 `OPENAI_API_KEY` is also accepted. For an OpenAI-compatible service, set
-`TRIAGE0_BASELINE_BASE_URL` to its API base URL or pass `--base-url`.
+`TRIAGE0_BASELINE_BASE_URL` to its API base URL or pass `base_url`.
 Model ID and base URL are configurable, so the evaluation logic is not tied to a vendor.
 
 To report cost, set the model's current prices (USD per 1 million tokens):
@@ -56,7 +54,7 @@ fabricated.
 There is no separate schema module. Pydantic 2 models are defined next to the code that
 uses them:
 
-- `src/triage0/eval/baseline.py` defines `DatasetReport`, `ModelVerdict`,
+- `src/triage0/eval/baseline/baseline.py` defines `DatasetReport`, `ModelVerdict`,
   `ModelPrediction`, `EvaluationResult`, and the provider-envelope models
   `ChatCompletionResponse`, `ChatChoice`, `ChatMessage`, and `TokenUsage`.
 - `src/triage0/eval/metrics.py` defines the `BaselineVerdict` and `BaselineLabel`
@@ -85,7 +83,7 @@ The validation boundaries behave as follows:
 
 ## Dataset layout
 
-By default the CLI expects:
+The curated benchmark uses these directories:
 
 - `datasets/curl_slop_49/`: confirmed fake reports (Markdown, text, JSON, or JSONL)
 - `datasets/curl_cves_215/`: real CVE reports (Markdown, text, JSON, or JSONL)
@@ -99,29 +97,46 @@ The uploaded repository scaffold did not include either dataset directory. Add t
 dataset files before running the full 49-fake / 215-real benchmark.
 
 Within one dataset, duplicate IDs are qualified by relative source path; duplicate IDs
-inside one source file are rejected as ambiguous. The CLI additionally prefixes fake IDs
-with `fake:` and real IDs with `real:`, so the combined benchmark can contain the same
-raw advisory or report ID in both labels without a collision.
+inside one source file are rejected as ambiguous. Pass `id_prefix="fake:"` and
+`id_prefix="real:"` when loading, so the combined benchmark can contain the same raw
+advisory or report ID in both labels without a collision.
 
 ## Run
 
-```bash
-triage0 eval --baseline --repo C:\src\curl --output results/curl-baseline.json
+The baseline is exposed as a library API in `triage0.eval.baseline`. The Typer
+CLI's `eval` command is owned separately and will call it once that integration
+lands.
+
+```python
+import json
+from pathlib import Path
+
+from triage0.eval.baseline import load_reports, run_baseline
+
+reports = load_reports(
+    "datasets/curl_slop_49", "fake", id_prefix="fake:"
+) + load_reports(
+    "datasets/curl_cves_215", "real", id_prefix="real:"
+)
+result = run_baseline(
+    reports,
+    repository_path=r"C:\src\curl",
+    repo_ref="curl-8_13_0",
+)
+
+output = Path("results/curl-baseline.json")
+output.parent.mkdir(parents=True, exist_ok=True)
+output.write_text(json.dumps(result, indent=2), encoding="utf-8")
 ```
 
-Or set `TRIAGE0_BASELINE_REPO` and run:
+Replace `repo_ref` with the tag or commit under test. If per-report metadata
+(`repo_ref`, `git_ref`, `commit`, or `revision`) is present, omit the global
+`repo_ref` to use each record's revision. A small smoke test can slice the
+combined list, for example `reports[:2]`.
 
-```bash
-triage0 eval --baseline
-```
-
-Use `--fake-dir` and `--real-dir` to override dataset paths, `--repo-ref` to pin reports
-without per-report Git revision metadata, and `--limit 2` for a small smoke test.
-`--limit` applies after the fake and real datasets are combined, so it selects fake
-reports first. The run fails fast by default on API, repository, or dataset errors.
-`--continue-on-error` is available only for diagnostic partial runs; failed rows have no
-verdict, are excluded from prediction-rate denominators, and cause `run_complete` to be
-false with exit code 3.
+`run_baseline` fails fast by default on API, repository, or dataset errors. Pass
+`fail_fast=False` only for diagnostic partial runs: failed rows have no verdict,
+are excluded from prediction-rate denominators, and make `run_complete` false.
 
 The output includes a `dataset` block with both loaded counts, the selected count, the
 requested limit, and the ID prefixes. Resolved Git references are recorded in
@@ -146,10 +161,11 @@ signal.
 
 The offline test suite covers valid and invalid dataset records, duplicate IDs, supported
 and unsupported verdicts, malformed model JSON, API-envelope failures, usage
-normalization, result invariants, resolved Git revisions, and CLI limits/error handling.
+normalization, result invariants, resolved Git revisions, redirect handling, and context
+selection.
 
 ```bash
 python -m pytest -q
-python -m mypy
+python -m mypy src
 python -m compileall -q src tests
 ```
