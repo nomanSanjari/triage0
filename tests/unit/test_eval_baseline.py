@@ -682,7 +682,10 @@ def test_call_model_records_malformed_model_output_as_uncertain(monkeypatch):
     assert result["raw_response"]["raw_text"] == "not json"
 
 
-def test_call_model_requires_api_key(monkeypatch):
+def test_call_model_requires_api_key(monkeypatch, tmp_path):
+    # Run somewhere without a .env so a developer's local credentials cannot
+    # make this test pass accidentally.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("TRIAGE0_BASELINE_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
