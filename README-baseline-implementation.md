@@ -20,34 +20,50 @@ access unless an evaluation is actually run against a model endpoint.
 ## Configure the model endpoint
 
 The implementation uses the OpenAI-compatible Chat Completions API and Python's standard
-library HTTP client. Set:
+library HTTP client. Copy the example environment file and fill in the values:
+
+```bash
+cp .env.example .env
+```
+
+On PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+`.env` is gitignored. The baseline reads it from the current working directory when
+`call_model()` runs. Process environment variables always win over `.env`, and an explicit
+`api_key=` argument wins over both.
+
+```dotenv
+TRIAGE0_BASELINE_API_KEY=your-api-key
+TRIAGE0_BASELINE_MODEL=gpt-4.1
+TRIAGE0_BASELINE_BASE_URL=https://api.openai.com/v1
+TRIAGE0_BASELINE_INPUT_USD_PER_1M=
+TRIAGE0_BASELINE_OUTPUT_USD_PER_1M=
+```
+
+`OPENAI_API_KEY` is also accepted. For an OpenAI-compatible service, set
+`TRIAGE0_BASELINE_BASE_URL` or pass `base_url`. Model ID and base URL are configurable, so
+the evaluation logic is not tied to a vendor.
+
+Exporting the same variables in the shell also works and takes precedence over `.env`:
 
 ```powershell
 $env:TRIAGE0_BASELINE_API_KEY = "your-api-key"
 $env:TRIAGE0_BASELINE_MODEL = "gpt-4.1"
 ```
 
-On bash/zsh:
-
 ```bash
 export TRIAGE0_BASELINE_API_KEY="your-api-key"
 export TRIAGE0_BASELINE_MODEL="gpt-4.1"
 ```
 
-`OPENAI_API_KEY` is also accepted. For an OpenAI-compatible service, set
-`TRIAGE0_BASELINE_BASE_URL` to its API base URL or pass `base_url`.
-Model ID and base URL are configurable, so the evaluation logic is not tied to a vendor.
-
-To report cost, set the model's current prices (USD per 1 million tokens):
-
-```bash
-TRIAGE0_BASELINE_INPUT_USD_PER_1M="..."
-TRIAGE0_BASELINE_OUTPUT_USD_PER_1M="..."
-```
-
-Prices are deliberately not hard-coded because they vary by provider and model. If token
-usage is unavailable, or prices are not configured, cost metrics are `null` rather than
-fabricated.
+To report cost, set the model's current prices (USD per 1 million tokens) in `.env` or the
+environment. Prices are deliberately not hard-coded because they vary by provider and
+model. If token usage is unavailable, or prices are not configured, cost metrics are
+`null` rather than fabricated.
 
 ## Validation architecture
 
