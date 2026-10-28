@@ -31,6 +31,7 @@ from pydantic import (
     model_validator,
 )
 
+from triage0.config import load_env
 from triage0.eval.metrics import (
     BaselineLabel,
     BaselineVerdict,
@@ -1125,6 +1126,9 @@ def call_model(
     with Pydantic models before they enter the evaluation record.
     """
 
+    # `.env` is loaded here rather than at import time so library users who
+    # never call the model are unaffected. Existing environment variables win.
+    load_env()
     key = api_key or os.getenv("TRIAGE0_BASELINE_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not key:
         raise BaselineError("No API key found. Set TRIAGE0_BASELINE_API_KEY (or OPENAI_API_KEY).")
