@@ -1,7 +1,28 @@
 scaffold.sh
-.venv
+
+# Python bytecode and interpreter caches
 __pycache__/
 *.py[cod]
+*$py.class
+
+# Test, type-check, and coverage artifacts
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging and build output
+build/
+dist/
 *.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local environment files
+.env
+.env.*
+!.env.example
