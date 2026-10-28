@@ -1,0 +1,37 @@
+# triage0 sandbox image: the offline toolbox claims are checked in.
+#
+# The project's code is never baked in. A disposable git worktree is
+# bind-mounted read-only at /src at run time, and the container runs with
+# --network=none, so everything needed must already be installed here.
+#
+# Build without a context (nothing is COPY'd, so nothing is uploaded):
+#   docker build -t triage0-sandbox:dev - < Dockerfile.sandbox
+
+# 26.04 LTS: tree-sitter 0.25 can load current grammars (24.04 ships 0.20).
+# Pinned by digest so every build starts from exactly the same image.
+FROM ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# --no-install-recommends keeps out extras we didn't ask for. Removing the
+# apt lists afterwards means nothing can be installed later at run time
+# (and there's no network to fetch them anyway).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential \
+      clang \
+      git \
+      ripgrep \
+      tree-sitter-cli \
+      universal-ctags \
+ && rm -rf /var/lib/apt/lists/*
+
+# Never run as root by default. The host may still override this with
+# `docker run --user` (e.g. to match the owner of the mounted worktree).
+RUN useradd --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin sandbox
+USER 10001:10001
+
+# The root filesystem is mounted read-only; tools that write config or
+# cache files under $HOME get the writable /tmp tmpfs instead.
+ENV HOME=/tmp
+WORKDIR /src
