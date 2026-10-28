@@ -7,7 +7,7 @@ name = "triage0"
 version = "0.1.0"
 description = "Deterministic evidence checker for AI-written bug reports"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.7,<3", "typer>=0.16,<1"]
+dependencies = ["pydantic>=2.7,<3", "typer>=0.16,<1", "python-dotenv>=1.0,<2"]
 
 [project.scripts]
 triage0 = "triage0.cli.main:app"
