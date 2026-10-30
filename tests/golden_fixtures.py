@@ -28,12 +28,17 @@ class _FixtureModel(BaseModel):
 
 
 class LineEvidence(_FixtureModel):
-    """One source line, exactly as it reads at the case's commit."""
+    """One source line, exactly as it reads at the case's commit.
+
+    ``commit`` points at a different commit instead, for evidence about the
+    past, such as where a since-renamed symbol used to be defined.
+    """
 
     kind: Literal["line"]
     path: str = Field(min_length=1)
     line: int = Field(ge=1)
     text: str
+    commit: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     note: str | None = None
 
 
