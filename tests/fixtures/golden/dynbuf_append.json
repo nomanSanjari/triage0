@@ -1,0 +1,75 @@
+{
+  "case_id": "dynbuf_append",
+  "description": "Self-written report about curl's dynamic buffer: one real function, one correctly quoted line, and one line the reporter got wrong. Covers symbol CONFIRMED and file/line CONFIRMED + CONTRADICTED.",
+  "repo_url": "https://github.com/curl/curl",
+  "tag": "curl-8_23_0",
+  "commit": "3163ec065643ba20709f190111f42c3e1fe95273",
+  "report": {
+    "report_id": "golden-dynbuf-append",
+    "source": "markdown",
+    "project": "curl",
+    "title": "Heap overflow in dynbuf append",
+    "body": "I think there is a heap overflow in curl 8.23.0.\n\nThe function `curlx_dyn_add` in lib/curlx/dynbuf.c appends a string to a dynamic buffer by calling `dyn_nappend`, which copies the data at line 115:\n\n    memcpy(&s->bufr[idx], mem, len);\n\nThere is no size check before it: line 82 is the same `memcpy(&s->bufr[idx], mem, len);` with nothing in front of it, so a long string overflows the buffer.\n"
+  },
+  "requested_version": "curl 8.23.0",
+  "expected_claims": [
+    {
+      "claim": {
+        "kind": "symbol",
+        "claim_id": "c1",
+        "statement": "curlx_dyn_add is a function in lib/curlx/dynbuf.c",
+        "source_excerpt": "The function `curlx_dyn_add` in lib/curlx/dynbuf.c",
+        "symbol": "curlx_dyn_add",
+        "symbol_kind": "function",
+        "file_hint": "lib/curlx/dynbuf.c"
+      },
+      "expected_status": "CONFIRMED",
+      "evidence": [
+        {
+          "path": "lib/curlx/dynbuf.c",
+          "line": 173,
+          "text": "CURLcode curlx_dyn_add(struct dynbuf *s, const char *str)"
+        }
+      ]
+    },
+    {
+      "claim": {
+        "kind": "file_line",
+        "claim_id": "c2",
+        "statement": "lib/curlx/dynbuf.c line 115 is memcpy(&s->bufr[idx], mem, len);",
+        "source_excerpt": "which copies the data at line 115:\n\n    memcpy(&s->bufr[idx], mem, len);",
+        "path": "lib/curlx/dynbuf.c",
+        "line_start": 115,
+        "expected_snippet": "memcpy(&s->bufr[idx], mem, len);"
+      },
+      "expected_status": "CONFIRMED",
+      "evidence": [
+        {
+          "path": "lib/curlx/dynbuf.c",
+          "line": 115,
+          "text": "    memcpy(&s->bufr[idx], mem, len);"
+        }
+      ]
+    },
+    {
+      "claim": {
+        "kind": "file_line",
+        "claim_id": "c3",
+        "statement": "lib/curlx/dynbuf.c line 82 is memcpy(&s->bufr[idx], mem, len);",
+        "source_excerpt": "line 82 is the same `memcpy(&s->bufr[idx], mem, len);`",
+        "path": "lib/curlx/dynbuf.c",
+        "line_start": 82,
+        "expected_snippet": "memcpy(&s->bufr[idx], mem, len);"
+      },
+      "expected_status": "CONTRADICTED",
+      "evidence": [
+        {
+          "path": "lib/curlx/dynbuf.c",
+          "line": 82,
+          "text": "  if(fit > s->toobig) {",
+          "note": "Line 82 is the size check that rejects an append that would not fit; the copy is at line 115."
+        }
+      ]
+    }
+  ]
+}
