@@ -1,0 +1,77 @@
+{
+  "case_id": "easy_perform_path",
+  "description": "Self-written report with two call-path claims from curl_easy_perform: a real chain through the multi interface, and a made-up target that has never existed in curl. Covers call path CONFIRMED + CONTRADICTED.",
+  "repo_url": "https://github.com/curl/curl",
+  "tag": "curl-8_23_0",
+  "commit": "3163ec065643ba20709f190111f42c3e1fe95273",
+  "report": {
+    "report_id": "golden-easy-perform-path",
+    "source": "markdown",
+    "project": "curl",
+    "title": "Unchecked chunk copy reachable from curl_easy_perform",
+    "body": "Tested on curl 8.23.0.\n\n`curl_easy_perform` runs every transfer through the multi interface: it calls `easy_perform` (lib/easy.c line 855), which calls `easy_transfer` (line 833), which calls `curl_multi_perform` (line 729).\n\nFor chunked responses, `curl_easy_perform` eventually reaches `Curl_http_chunk_unsafe_copy` in lib/http_chunks.c, which copies each chunk without checking its size.\n"
+  },
+  "requested_version": "curl 8.23.0",
+  "expected_claims": [
+    {
+      "claim": {
+        "kind": "call_path",
+        "claim_id": "c1",
+        "statement": "curl_easy_perform reaches curl_multi_perform",
+        "source_excerpt": "it calls `easy_perform` (lib/easy.c line 855), which calls `easy_transfer` (line 833), which calls `curl_multi_perform` (line 729)",
+        "entrypoint": "curl_easy_perform",
+        "target": "curl_multi_perform"
+      },
+      "expected_status": "CONFIRMED",
+      "evidence": [
+        {
+          "kind": "line",
+          "path": "lib/easy.c",
+          "line": 855,
+          "text": "    result = easy_perform(curl, FALSE);",
+          "note": "Inside curl_easy_perform (defined at line 849)."
+        },
+        {
+          "kind": "line",
+          "path": "lib/easy.c",
+          "line": 833,
+          "text": "  result = events ? easy_events(multi) : easy_transfer(multi);",
+          "note": "Inside easy_perform (lines 770-848); events is FALSE on this path."
+        },
+        {
+          "kind": "line",
+          "path": "lib/easy.c",
+          "line": 729,
+          "text": "      mresult = curl_multi_perform(multi, &still_running);",
+          "note": "Inside easy_transfer (lines 717-769)."
+        },
+        {
+          "kind": "line",
+          "path": "lib/multi.c",
+          "line": 2972,
+          "text": "CURLMcode curl_multi_perform(CURLM *m, int *running_handles)",
+          "note": "Definition of the target."
+        }
+      ]
+    },
+    {
+      "claim": {
+        "kind": "call_path",
+        "claim_id": "c2",
+        "statement": "curl_easy_perform reaches Curl_http_chunk_unsafe_copy",
+        "source_excerpt": "`curl_easy_perform` eventually reaches `Curl_http_chunk_unsafe_copy` in lib/http_chunks.c",
+        "entrypoint": "curl_easy_perform",
+        "target": "Curl_http_chunk_unsafe_copy"
+      },
+      "expected_status": "CONTRADICTED",
+      "evidence": [
+        {
+          "kind": "absent",
+          "pattern": "Curl_http_chunk_unsafe_copy",
+          "scope": "history",
+          "note": "The target has never existed in curl. Pending the not-found agreement (#10): a checker reports it as not found, and CONTRADICTED comes only after the history check."
+        }
+      ]
+    }
+  ]
+}
