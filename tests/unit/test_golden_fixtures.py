@@ -39,7 +39,9 @@ def make_case(**overrides: Any) -> dict[str, Any]:
                     "symbol": "curl_easy_init",
                 },
                 "expected_status": "CONFIRMED",
-                "evidence": [{"path": "lib/easy.c", "line": 1, "text": "x"}],
+                "evidence": [
+                    {"kind": "line", "path": "lib/easy.c", "line": 1, "text": "x"}
+                ],
             }
         ],
     }

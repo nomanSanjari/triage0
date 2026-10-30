@@ -26,6 +26,7 @@
       "expected_status": "CONFIRMED",
       "evidence": [
         {
+          "kind": "line",
           "path": "lib/curlx/dynbuf.c",
           "line": 173,
           "text": "CURLcode curlx_dyn_add(struct dynbuf *s, const char *str)"
@@ -45,6 +46,7 @@
       "expected_status": "CONFIRMED",
       "evidence": [
         {
+          "kind": "line",
           "path": "lib/curlx/dynbuf.c",
           "line": 115,
           "text": "    memcpy(&s->bufr[idx], mem, len);"
@@ -64,6 +66,7 @@
       "expected_status": "CONTRADICTED",
       "evidence": [
         {
+          "kind": "line",
           "path": "lib/curlx/dynbuf.c",
           "line": 82,
           "text": "  if(fit > s->toobig) {",

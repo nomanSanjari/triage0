@@ -36,7 +36,7 @@ One JSON file per case. The file name is the `case_id`.
 | `report` | The report, as `NormalizedReport` fields. |
 | `requested_version` | The version text a correct decomposer copies from the report, or `null` if the report gives none. |
 | `expected_claims` | The claims a correct decomposer extracts. Each has `claim` (a core claim, chosen by `kind`), `expected_status` and `evidence`. |
-| `evidence` | Source lines that justify the label: `path`, `line`, the exact `text` of that line at `commit`, and an optional `note`. |
+| `evidence` | What justifies the label, each with an optional `note`. `"kind": "line"`: `path`, `line` and the exact `text` of that line at `commit`. `"kind": "absent"`: a `pattern` that appears nowhere in `scope`, which is `tree` (any file at `commit`) or `history` (any commit up to it). |
 
 Every claim's `source_excerpt` must appear in the report body, because the
 decomposer drops claims whose excerpt it can't find.

@@ -10,7 +10,7 @@ The labels live in this wrapper, not in ``claim.result``: core's
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -30,16 +30,34 @@ class _FixtureModel(BaseModel):
 class LineEvidence(_FixtureModel):
     """One source line, exactly as it reads at the case's commit."""
 
+    kind: Literal["line"]
     path: str = Field(min_length=1)
     line: int = Field(ge=1)
     text: str
     note: str | None = None
 
 
+class AbsentEvidence(_FixtureModel):
+    """Proof by absence: ``pattern`` appears nowhere in ``scope``.
+
+    ``tree`` is every file at the case's commit; ``history`` is every commit
+    up to it. A renamed symbol is absent from the tree but not the history,
+    which is how the two cases are told apart.
+    """
+
+    kind: Literal["absent"]
+    pattern: str = Field(min_length=1)
+    scope: Literal["tree", "history"]
+    note: str | None = None
+
+
+Evidence = Annotated[LineEvidence | AbsentEvidence, Field(discriminator="kind")]
+
+
 class ExpectedClaim(_FixtureModel):
     claim: AnyClaim
     expected_status: EvidenceStatus
-    evidence: tuple[LineEvidence, ...] = ()
+    evidence: tuple[Evidence, ...] = ()
 
     @model_validator(mode="after")
     def _terminal_labels_need_evidence(self) -> Self:
