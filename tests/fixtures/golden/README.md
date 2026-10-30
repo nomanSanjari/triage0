@@ -59,6 +59,25 @@ symbol, a renamed symbol, a file that only exists after a build) depend on how
 checkers signal "not found" to the code agent. That is still being agreed on
 #10, and these labels may change once it is.
 
+## Coverage
+
+Taken together, the cases must cover every row below.
+`test_fixtures_cover` in `tests/unit/test_golden_fixtures.py` fails if a row
+is lost, so a case can be edited or replaced as long as its rows stay covered.
+
+- Each claim kind (symbol, file/line, call path, build flag), both `CONFIRMED`
+  and `CONTRADICTED`.
+- A negated claim (`expected_present`, `expected_reachable` or
+  `expected_enabled` set to `false`).
+- A precise claim that is still `CANT_CHECK`.
+- A renamed symbol: absent from the tree, with a line at an older commit.
+- A made-up symbol: `CONTRADICTED`, absent from all history.
+- A real public report (`source_url` set) whose claims are true.
+- A report containing instructions aimed at the model.
+- A vague report with no claims and no version.
+
+PoC claims are not covered: they need the code to be run, not just read.
+
 ## Adding a case
 
 1. Pick what the case is for (a claim kind, an edge case) and write the report
