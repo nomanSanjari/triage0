@@ -79,11 +79,21 @@ class GoldenCase(_FixtureModel):
     case_id: str = Field(min_length=1)
     description: str = Field(min_length=1)
     repo_url: str = Field(min_length=1)
-    tag: str = Field(min_length=1)
-    commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    # Null only for a report with nothing to check, such as one that names no
+    # version; see _claims_need_a_version.
+    tag: str | None = Field(min_length=1)
+    commit: str | None = Field(pattern=r"^[0-9a-f]{40}$")
     report: NormalizedReport
     requested_version: str | None
     expected_claims: tuple[ExpectedClaim, ...]
+
+    @model_validator(mode="after")
+    def _claims_need_a_version(self) -> Self:
+        # A label is only true at one version, so it is meaningless without
+        # the commit it was checked at.
+        if self.expected_claims and (self.tag is None or self.commit is None):
+            raise ValueError("cases with claims need a tag and commit")
+        return self
 
     @model_validator(mode="after")
     def _claims_come_from_the_report(self) -> Self:

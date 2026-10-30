@@ -91,6 +91,13 @@ def test_duplicate_claim_id_is_rejected() -> None:
         GoldenCase.model_validate(case)
 
 
+def test_claims_without_a_version_are_rejected() -> None:
+    case = make_case(tag=None, commit=None)
+
+    with pytest.raises(ValidationError, match="cases with claims need a tag and commit"):
+        GoldenCase.model_validate(case)
+
+
 def test_case_id_must_match_file_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

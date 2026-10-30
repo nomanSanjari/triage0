@@ -32,7 +32,7 @@ One JSON file per case. The file name is the `case_id`.
 | `case_id` | Same as the file name, without `.json`. |
 | `description` | What the case is for and who uses it. |
 | `repo_url` | The repository the claims are about. |
-| `tag`, `commit` | The version the labels were checked at, and the commit that tag points to. Tags can move; the commit can't. |
+| `tag`, `commit` | The version the labels were checked at, and the commit that tag points to. Tags can move; the commit can't. Both `null` only in a case with no claims. |
 | `report` | The report, as `NormalizedReport` fields. |
 | `requested_version` | The version text a correct decomposer copies from the report, or `null` if the report gives none. |
 | `expected_claims` | The claims a correct decomposer extracts. Each has `claim` (a core claim, chosen by `kind`), `expected_status` and `evidence`. |

@@ -1,0 +1,16 @@
+{
+  "case_id": "vague_no_version",
+  "description": "Self-written report with nothing testable and no version: no function, file, line, call or build option. For #8: the decomposer extracts no claims (an empty plan) and leaves requested_version empty; nothing for the skeptic or the checkers to do.",
+  "repo_url": "https://github.com/curl/curl",
+  "tag": null,
+  "commit": null,
+  "report": {
+    "report_id": "golden-vague-no-version",
+    "source": "markdown",
+    "project": "curl",
+    "title": "curl is insecure",
+    "body": "curl is insecure. The code is badly written and full of memory bugs, and the maintainers do not take security seriously. Someone should audit all of it before anyone uses it in production.\n"
+  },
+  "requested_version": null,
+  "expected_claims": []
+}
