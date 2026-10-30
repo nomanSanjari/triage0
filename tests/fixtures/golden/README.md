@@ -94,3 +94,9 @@ PoC claims are not covered: they need the code to be run, not just read.
 
 3. Copy each evidence line exactly, including leading spaces.
 4. Save it as `<case_id>.json` and run `pytest tests/unit/test_golden_fixtures.py`.
+5. Check every evidence entry against the real source (clones curl, about
+   140 MB, needs internet):
+
+   ```bash
+   TRIAGE0_NETWORK_TESTS=1 pytest tests/integration/test_golden_fixtures_source.py
+   ```
