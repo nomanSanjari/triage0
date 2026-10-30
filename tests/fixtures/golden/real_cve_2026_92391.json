@@ -1,0 +1,94 @@
+{
+  "case_id": "real_cve_2026_92391",
+  "description": "A real, public curl security advisory (CVE-2026-92391), checked at its last affected version. Its claims are true and must never be CONTRADICTED (rule 1). The recursion runs through a function pointer, so a static call graph won't find it; CANT_CHECK is then an acceptable miss. Fixed in 8.23.0 by commit d7546809d5 (\"mime: do curl_mime_free() non-recursively\").",
+  "repo_url": "https://github.com/curl/curl",
+  "tag": "curl-8_22_0",
+  "commit": "01346829096c61b372692f6dc43ffa778c6caccd",
+  "report": {
+    "report_id": "golden-cve-2026-92391",
+    "source": "markdown",
+    "project": "curl",
+    "title": "curl_mime_free stack overflow by recursion",
+    "body": "Affected versions: libcurl 7.56.0 up to and including 8.22.0.\n\nA deeply nested multipart MIME structure constructed via the public API causes\na stack overflow in libcurl during normal cleanup operations. An excessive\nrecursion depth within `curl_mime_free` leads to unbounded stack frame\nallocation during structure traversal, ultimately crashing the host process.\n",
+    "reported_version": "8.22.0",
+    "source_url": "https://curl.se/docs/CVE-2026-92391.html"
+  },
+  "requested_version": "8.22.0",
+  "expected_claims": [
+    {
+      "claim": {
+        "kind": "symbol",
+        "claim_id": "c1",
+        "statement": "curl_mime_free is a function in libcurl",
+        "source_excerpt": "`curl_mime_free`",
+        "symbol": "curl_mime_free",
+        "symbol_kind": "function"
+      },
+      "expected_status": "CONFIRMED",
+      "evidence": [
+        {
+          "kind": "line",
+          "path": "lib/mime.c",
+          "line": 1113,
+          "text": "void curl_mime_free(curl_mime *mime)",
+          "note": "The real implementation. An empty stub at line 2190 is used only when MIME support is compiled out."
+        }
+      ]
+    },
+    {
+      "claim": {
+        "kind": "call_path",
+        "claim_id": "c2",
+        "statement": "curl_mime_free can call itself recursively",
+        "source_excerpt": "An excessive\nrecursion depth within `curl_mime_free`",
+        "entrypoint": "curl_mime_free",
+        "target": "curl_mime_free"
+      },
+      "expected_status": "CONFIRMED",
+      "evidence": [
+        {
+          "kind": "line",
+          "path": "lib/mime.c",
+          "line": 1122,
+          "text": "      Curl_mime_cleanpart(part);",
+          "note": "Hop 1, inside curl_mime_free (line 1113): free each part."
+        },
+        {
+          "kind": "line",
+          "path": "lib/mime.c",
+          "line": 1101,
+          "text": "    cleanup_part_content(part);",
+          "note": "Hop 2, inside Curl_mime_cleanpart (line 1098)."
+        },
+        {
+          "kind": "line",
+          "path": "lib/mime.c",
+          "line": 1059,
+          "text": "    part->freefunc(part->arg);",
+          "note": "Hop 3, inside cleanup_part_content (line 1056): a call through a function pointer."
+        },
+        {
+          "kind": "line",
+          "path": "lib/mime.c",
+          "line": 1509,
+          "text": "    part->freefunc = take_ownership ? mime_subparts_free :",
+          "note": "Inside Curl_mime_set_subparts (line 1468): for a part holding nested subparts, the pointer is set to mime_subparts_free."
+        },
+        {
+          "kind": "line",
+          "path": "lib/mime.c",
+          "line": 1521,
+          "text": "  return Curl_mime_set_subparts(part, subparts, TRUE);",
+          "note": "The public curl_mime_subparts (line 1519) passes take_ownership = TRUE, so nesting via the public API takes that branch."
+        },
+        {
+          "kind": "line",
+          "path": "lib/mime.c",
+          "line": 1083,
+          "text": "  curl_mime_free(mime);",
+          "note": "Hop 4, inside mime_subparts_free (line 1075): back into curl_mime_free, once per nesting level."
+        }
+      ]
+    }
+  ]
+}
