@@ -192,7 +192,8 @@ COVERAGE: dict[str, Rule] = {
         _is_negated(e.claim) for e in _all_claims(cases)
     ),
     "precise CANT_CHECK claim": lambda cases: any(
-        e.expected_status is EvidenceStatus.CANT_CHECK for e in _all_claims(cases)
+        e.expected_status is EvidenceStatus.CANT_CHECK and not _is_rename(e)
+        for e in _all_claims(cases)
     ),
     "renamed symbol": lambda cases: any(_is_rename(e) for e in _all_claims(cases)),
     "made-up symbol": lambda cases: any(_is_made_up(e) for e in _all_claims(cases)),
