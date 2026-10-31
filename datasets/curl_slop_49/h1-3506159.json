@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3506159",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3506159.",
+  "ground_truth": "fake",
+  "id": "h1-3506159",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2026-01-10T19:22:25.801Z",
+      "cve_ids": [],
+      "disclosed_at": "2026-01-10T21:57:49.581Z",
+      "id": 3506159,
+      "public": true,
+      "severity_rating": "high",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Out-of-bounds Read"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "f315b3d496575a992ea6f2845a1536f5c27e4219317e73ccf25c679b75bddec0"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Heap Out-of-Bounds Read in lib/http2.c via Malformed PUSH_PROMISE Headers\n\nSummary\nA heap-based out-of-bounds read vulnerability exists in libcurl's HTTP/2 implementation. The on_header callback in lib/http2.c incorrectly treats header names and values provided by nghttp2 as null-terminated C-strings. Specifically, passing these pointers to curl_maprintf with the %s format specifier triggers an out-of-bounds read via strlen(), as nghttp2 provides raw byte buffers with explicit lengths, not null-terminated strings.\n+1\n\nVulnerability Analysis & Root Cause\n1. API Contract Violation: According to the nghttp2 documentation, the nghttp2_on_header_callback provides pointers to the header name and value (name, value) alongside their lengths (namelen, valuelen). The documentation explicitly states:\n\n\"The 'name' and 'value' pointers are NOT guaranteed to be null-terminated. [...] Applications MUST use the provided length parameters.\".\n\n2. Vulnerable Implementation: In lib/http2.c, the on_header function ignores the length parameters when formatting the string for PUSH_PROMISE headers, relying on curl_maprintf which internally uses strlen:\n\nC\n\n/* lib/http2.c around line 1642 - Vulnerable */\nh = curl_maprintf(\"%s:%s\", name, value); \n3. Execution Flow:\n\ncurl_maprintf parses the %s format specifier.\n\nIt internally calls strlen() on the name and value pointers.\n\nSince the malicious server sends a header without a null byte, strlen() reads past the allocated buffer boundary until it hits a coincidental null byte in adjacent heap memory.\n\nThis results in an Out-of-Bounds Read.\n\nSteps to Reproduce\n1. Build Environment\nCompile cURL with AddressSanitizer (ASAN) to visualize the memory violation:\n\nBash\n\n./configure --with-nghttp2 --enable-debug CFLAGS=\"-fsanitize=address -g\" LDFLAGS=\"-fsanitize=address\"\nmake -j$(nproc)\n2. Reproduction Script (http2_server.py)\nThis Python script (using h2) establishes an HTTP/2 connection and pushes a stream with a non-null-terminated header.\n\nPython\n\nimport asyncio, h2.connection, h2.events, h2.config\n\nasync def handle(reader, writer):\n    config = h2.config.H2Configuration(client_side=False)\n    conn = h2.connection.H2Connection(config=config)\n    conn.initiate_connection()\n    conn.update_settings({h2.settings.SettingCodes.ENABLE_PUSH: 1})\n    writer.write(conn.data_to_send())\n    await writer.drain()\n\n    data = await reader.read(65535)\n    events = conn.receive_data(data)\n    \n    for event in events:\n        if isinstance(event, h2.events.RequestReceived):\n            conn.send_headers(event.stream_id, [(':status', '200')])\n            \n            # MALICIOUS PAYLOAD: Header with no null termination logic\n            malicious_name = b'x-oob-test' + b'A' * 64 \n            malicious_val = b'trigger' + b'B' * 64\n            \n            conn.push_stream(event.stream_id, event.stream_id + 2, [\n                (b':method', b'GET'), (b':path', b'/push'),\n                (b':scheme', b'http'), (b':authority', b'localhost'),\n                (malicious_name, malicious_val)\n            ])\n            writer.write(conn.data_to_send())\n            await writer.drain()\n            break\n    writer.close()\n\nasyncio.run(asyncio.start_server(handle, '127.0.0.1', 8080).serve_forever())\n3. Execution\nRun the server and connect with the ASAN-enabled cURL:\n\nBash\n\n# Terminal 1\npython3 http2_server.py\n\n# Terminal 2\nASAN_OPTIONS=detect_stack_use_after_return=1 ./src/curl -v --http2-prior-knowledge http://127.0.0.1:8080/\nEvidence (ASAN Log)\nThe following ASAN output confirms the read overflow. The READ of size... occurs inside strlen called by curl_maprintf.\n\nPlaintext\n\n==67356==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6c352e0e001a...\nREAD of size 11 at 0x6c352e0e001a thread T0\n    #0 0x... in strlen\n    #1 0x... in curl_maprintf\n    #2 0x... in on_header lib/http2.c:1642\n...\n0x6c352e0e001a is located 0 bytes after 10-byte region...\nRecommended Fix\nThe code must use the explicit namelen and valuelen parameters provided by the nghttp2 callback to limit the read operation.\n\nPatch (lib/http2.c): Use the precision specifier %.*s which takes the length as an integer argument before the string pointer.\n\nC\n\n/* Fixed implementation */\nh = curl_maprintf(\"%.*s:%.*s\", (int)namelen, name, (int)valuelen, value);\nDiff:\n\nDiff\n\n--- a/lib/http2.c\n+++ b/lib/http2.c\n@@ -1642,7 +1642,7 @@ static int on_header(nghttp2_session *session, const nghttp2_frame *frame,\n-      h = curl_maprintf(\"%s:%s\", name, value);\n+      h = curl_maprintf(\"%.*s:%.*s\", (int)namelen, name, (int)valuelen, value);\n\n## Impact\n\nImpact\nInformation Disclosure: Attackers can read sensitive data (keys, tokens, other request data) from the heap memory adjacent to the header buffer.\n\nAvailability: If the OOB read accesses unmapped memory, the application will crash.",
+  "report_id": "h1-3506159",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3506159",
+  "tag": null,
+  "title": "Heap Out-of-Bounds Read in lib/http2.c via Malformed PUSH_PROMISE Headers"
+}

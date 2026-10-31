@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3516202",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3516202.",
+  "ground_truth": "fake",
+  "id": "h1-3516202",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2026-01-19T10:27:16.208Z",
+      "cve_ids": [],
+      "disclosed_at": "2026-01-19T11:50:24.059Z",
+      "id": 3516202,
+      "public": true,
+      "severity_rating": "none",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Use After Free"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "8a809cb20bb5c32c9cf3be7a1fb9a103a315884616f83141e0535355698b8a46"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Cookie Replacement Use-After-Free Vulnerability\n\n## Summary:\nThe cookie replacement logic in `lib/cookie.c` contains a use-after-free vulnerability in the `replace_existing()` function. The function modifies a linked list while iterating over it, creating potential for memory corruption in concurrent or complex cookie operations.\n\n**Vulnerable Code Location:** `lib/cookie.c:822-925`\n\n```c\nstatic bool replace_existing(struct Curl_easy *data,\n                             struct Cookie *co,\n                             struct CookieInfo *ci,\n                             bool secure,\n                             bool *replacep)\n{\n    bool replace_old = FALSE;\n    struct Curl_llist_node *replace_n = NULL;\n    struct Curl_llist_node *n;\n    \n    // Iterate over cookie list\n    for(n = Curl_llist_head(&ci->cookielist[myhash]); n; n = Curl_node_next(n)) {\n        struct Cookie *clist = Curl_node_elem(n);\n        // ... comparison logic ...\n        if(replace_old)\n            replace_n = n;  // Store node for later deletion\n    }\n    \n    // Delete node after iteration\n    if(replace_n) {\n        struct Cookie *repl = Curl_node_elem(replace_n);\n        co->creationtime = repl->creationtime;  // Access freed memory\n        Curl_node_remove(replace_n);\n        freecookie(repl, TRUE);  // Free memory\n    }\n}\n```\n\n## Affected version\ncurl 7.x - 8.x\n\n## Steps To Reproduce:\n\n### PoC Server\n\nA race condition server has been developed to trigger the vulnerability:\n\n**File:** `poc_cookie_uaf.py`\n\n```bash\n# Run the PoC server\npython3 poc_cookie_uaf.py\n\n# Server starts on http://localhost:8000\n# Provides 3 different exploit scenarios\n```\n\n### Testing with AddressSanitizer\n\n**CRITICAL:** This vulnerability requires AddressSanitizer to detect reliably.\n\n#### Build curl with ASan\n\n```bash\ncd curl\nexport CFLAGS=\"-fsanitize=address -fno-omit-frame-pointer -g\"\nexport LDFLAGS=\"-fsanitize=address\"\n./buildconf\n./configure --enable-debug --disable-shared\nmake clean\nmake\n```\n\n#### Test 1: Rapid Cookie Replacement\n\n```bash\n# Single request with 50 cookies\n./src/curl -c cookies.txt http://localhost:8000/exploit1\n\n# Check for ASan errors\n# Look for: \"heap-use-after-free\"\n```\n\n**Expected ASan Output (if vulnerable):**\n```\n==12345==ERROR: AddressSanitizer: heap-use-after-free on address 0x602000001234\nREAD of size 8 at 0x602000001234 thread T0\n    #0 0x... in replace_existing lib/cookie.c:915\n    #1 0x... in Curl_cookie_add lib/cookie.c:1234\n    #2 0x... in Curl_http_input_auth lib/http.c:567\n```\n\n#### Test 2: Concurrent Requests\n\n```bash\n# Trigger race conditions with concurrent requests\nfor i in {1..20}; do\n    ./src/curl -c cookies_$i.txt http://localhost:8000/exploit2 &\ndone\nwait\n\n# Check for crashes or ASan errors\n```\n\n#### Test 3: Complex Replacement Patterns\n\n```bash\n# Test edge cases\n./src/curl -c cookies.txt http://localhost:8000/exploit3\n\n# Run multiple times to trigger race\nfor i in {1..100}; do\n    ./src/curl -c cookies_test_$i.txt http://localhost:8000/exploit3\ndone\n```\n\n### Verification Script\n\n```python\n#!/usr/bin/env python3\n# verify_uaf.py - Check for use-after-free indicators\n\nimport subprocess\nimport sys\n\ndef run_test(url):\n    \"\"\"Run curl and check for ASan errors\"\"\"\n    result = subprocess.run(\n        ['./src/curl', '-c', 'test.txt', url],\n        capture_output=True,\n        text=True\n    )\n    \n    # Check for ASan errors\n    if 'heap-use-after-free' in result.stderr:\n        print(f\"[VULN] Use-after-free detected: {url}\")\n        print(result.stderr)\n        return True\n    elif 'double-free' in result.stderr:\n        print(f\"[VULN] Double-free detected: {url}\")\n        print(result.stderr)\n        return True\n    elif result.returncode != 0:\n        print(f\"[CRASH] curl crashed: {url}\")\n        return True\n    \n    return False\n\n# Test all exploits\nexploits = [\n    'http://localhost:8000/exploit1',\n    'http://localhost:8000/exploit2',\n    'http://localhost:8000/exploit3',\n]\n\nvulnerable = False\nfor exploit in exploits:\n    if run_test(exploit):\n        vulnerable = True\n\nif vulnerable:\n    print(\"\\\\n[RESULT] Vulnerability confirmed!\")\n    sys.exit(1)\nelse:\n    print(\"\\\\n[RESULT] No vulnerability detected (or patched)\")\n    sys.exit(0)\n```\n\n## Supporting Material/References:\n\n- [CWE-416: Use After Free](https://cwe.mitre.org/data/definitions/416.html)\n- [AddressSanitizer Documentation](https://github.com/google/sanitizers/wiki/AddressSanitizer)\n- [curl Security Policy](https://curl.se/docs/security.html)\n- [Memory Safety in C](https://en.wikipedia.org/wiki/Memory_safety)\n\n### Attachments\n 1. `poc_cookie_uaf.py` - Proof of concept race condition server\n 2. `fix_cookie_uaf.patch` - Security patch\n\n## Impact\n\n## Summary:\n\n   - Heap corruption from use-after-free\n   - Potential for arbitrary code execution\n   - Information disclosure through freed memory\n   - Crashes from accessing freed memory\n   - Segmentation faults in cookie handling\n   - Application instability\n   - Freed cookie data may contain sensitive information\n   - Session tokens, authentication data exposed\n   - Memory layout information leaked\n   - If attacker can control freed memory contents\n   - Heap spraying techniques applicable\n   - Function pointer corruption possible",
+  "report_id": "h1-3516202",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3516202",
+  "tag": null,
+  "title": "Cookie Replacement Use-After-Free Vulnerability"
+}

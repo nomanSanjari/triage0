@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3346118",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3346118.",
+  "ground_truth": "fake",
+  "id": "h1-3346118",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-09-18T16:11:20.710Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-09-18T21:28:32.189Z",
+      "id": 3346118,
+      "public": true,
+      "severity_rating": "medium",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Information Exposure Through Timing Discrepancy"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "02a92e76c8c2cda554ff13df00a70d66de9ddcb3704ca097791a7d3d5493a756"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Timing Attack Vulnerability in curl Digest Authentication via Non-Constant-Time String Comparison\n\n## Summary:\nA timing attack vulnerability exists in curl's Digest Authentication implementation due to the use of non-constant-time string comparison (strcmp()) when comparing authentication algorithms in digest.c line 360. This allows attackers to determine the supported authentication algorithm through response time analysis.\n\nNo AI was used to discover this vulnerability or generate this report.\n\n## Affected version\n    * curl version 7.88.1 (x86_64-pc-linux-gnu)\n\n    * libcurl/7.88.1 OpenSSL/3.0.8 zlib/1.2.13 libidn2/2.3.4 libpsl/0.21.2 (+libidn2/2.3.4) libssh2/1.10.0 nghttp2/1.52.0\n\n    * Platform: Linux Ubuntu 22.04.3 LTS\n\n## Steps To Reproduce:\n   1.  Set up a test server with Digest Authentication enabled:\n\nbash\n```\n# Using a simple Python HTTP server with digest auth\npython3 -m http.server 8080 --digest\n```\n    2. Run the timing attack PoC against the local server: {F4799894}\n\nbash\n```\npython3 poc_timing_attack.py http://localhost:8080/protected\n```\n    3. Observe the timing differences between algorithm comparisons:\n\ntext\n```\nTesting algorithm: MD5             -   963236.5 ns\nTesting algorithm: MD5-sess        -   826390.0 ns\nTesting algorithm: SHA-1           -   814495.0 ns\n```\n\n   4.  The PoC will identify the algorithm with significantly different response times:\n\ntext\n```\nVULNERABILITY CONFIRMED: Timing attack possible\n   The server likely uses algorithm: MD5\n   Response time: 963236.50 ns\n   Deviation: +25.9% from average\n```\n\n\n## Supporting Material/References:\n   * PoC script output showing timing differences \n\n    *Vulnerable code location in digest.c line 360\n\n    *curl documentation on Digest Authentication : https://everything.curl.dev/libcurl-http/auth.html\n\n## Impact\n\n## Summary:\nAn attacker can exploit this vulnerability to:\n\n    1. Determine supported authentication algorithms on the server\n\n    2. Facilitate targeted attacks by identifying weaker algorithms (e.g., MD5 vs SHA-256)\n\n    3. Gain reconnaissance information about server configuration\n\n    4. Potentially bypass authentication if combined with other vulnerabilities\n\nThe vulnerability violates the principle of constant-time comparison for security-sensitive operations and could lead to authentication mechanism fingerprinting.\n\n##Additional Information:\n\n    * CVSS Score: 5.3 (Medium) - CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N\n\n    * Fix Recommendation: Replace strcmp() with Curl_timestrcmp() in /lib/vauth/digest.c:360\n\n    * Similar vulnerabilities: Previously addressed in other parts of curl codebase with constant-time comparison fixes",
+  "report_id": "h1-3346118",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3346118",
+  "tag": null,
+  "title": "Timing Attack Vulnerability in curl Digest Authentication via Non-Constant-Time String Comparison"
+}

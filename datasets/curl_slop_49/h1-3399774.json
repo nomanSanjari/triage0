@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3399774",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3399774.",
+  "ground_truth": "fake",
+  "id": "h1-3399774",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-10-25T20:12:34.215Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-10-25T22:04:59.315Z",
+      "id": 3399774,
+      "public": true,
+      "severity_rating": null,
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Heap Overflow"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "b24c570888517ad34b4a54f9c5ee0d02a971a9c7cd2e528cfb2406aee93aca73"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Integer Overflow to Heap Overflow in DoH Response Handling\n\n## Summary:\nAn integer overflow vulnerability exists in the `doh_probe_write_cb` function in `lib/doh.c`. This function is used as a write callback for DNS-over-HTTPS (DoH) responses. When a malicious DoH server sends a response with a crafted size, the multiplication of `size` and `nmemb` can overflow. This leads to the allocation of a smaller-than-expected buffer on the heap, but the function returns the wrapped-around, incorrect size. This discrepancy can lead to a heap overflow when the caller subsequently tries to access the buffer, resulting in a crash or potential arbitrary code execution.\n\n## Affected version\nThis vulnerability was found on the current master branch of the curl repository. It can be reproduced on a standard Linux build.\n\n## Steps To Reproduce:\n1.  Save the following Proof-of-Concept code as `poc.c` in the root of the curl project directory:\n    ```c\n    #include <stdio.h>\n    #include <string.h>\n    #include <stdlib.h>\n\n    #define CURL_STATICLIB\n    #include <curl/curl.h>\n\n    // --- From curl/lib/curlx/dynbuf.h ---\n    struct dynbuf {\n      char *bufr;\n      size_t leng;\n      size_t allc;\n      size_t toobig;\n    };\n\n    #define DYN_DOH_RESPONSE    3000\n\n    // --- From curl/lib/curlx/dynbuf.c ---\n    void curlx_dyn_init(struct dynbuf *s, size_t toobig)\n    {\n      s->bufr = NULL;\n      s->leng = 0;\n      s->allc = 0;\n      s->toobig = toobig;\n    }\n\n    void curlx_dyn_free(struct dynbuf *s)\n    {\n      free(s->bufr);\n      s->bufr = NULL;\n      s->leng = 0;\n      s->allc = 0;\n    }\n\n    CURLcode dyn_nappend(struct dynbuf *s, const unsigned char *mem, size_t len)\n    {\n      size_t idx = s->leng;\n      size_t a = s->allc;\n      size_t fit = len + idx + 1;\n\n      if(len > s->toobig - idx - 1) { // check for overflow before addition\n        return CURLE_TOO_LARGE;\n      }\n\n      if(!a) {\n        a = fit;\n      }\n      else {\n        while(a < fit)\n          a *= 2;\n      }\n\n      if(a != s->allc) {\n        void *p = realloc(s->bufr, a);\n        if(!p) {\n          curlx_dyn_free(s);\n          return CURLE_OUT_OF_MEMORY;\n        }\n        s->bufr = p;\n        s->allc = a;\n      }\n\n      if(len)\n        memcpy(&s->bufr[idx], mem, len);\n      s->leng = idx + len;\n      s->bufr[s->leng] = 0;\n      return CURLE_OK;\n    }\n\n    CURLcode curlx_dyn_addn(struct dynbuf *s, const void *mem, size_t len)\n    {\n      return dyn_nappend(s, (const unsigned char *)mem, len);\n    }\n\n    size_t curlx_dyn_len(const struct dynbuf *s)\n    {\n      return s->leng;\n    }\n\n    // --- From curl/lib/doh.h ---\n    struct doh_request {\n      unsigned char req_body[256 + 16];\n      void *req_hds;\n      struct dynbuf resp_body;\n      size_t req_body_len;\n      int dnstype;\n    };\n\n    // This is a copy of the vulnerable function from doh.c\n    size_t doh_probe_write_cb(char *contents, size_t size, size_t nmemb, void *userp)\n    {\n      size_t realsize = size * nmemb;\n      struct doh_request *doh_req = (struct doh_request *)userp;\n\n      if(!doh_req)\n        return -1; // CURL_WRITEFUNC_ERROR\n\n      // The vulnerability is that curlx_dyn_addn is called with a wrapped-around\n      // realsize, which can be very large. This PoC will crash here.\n      if(curlx_dyn_addn(&doh_req->resp_body, contents, realsize))\n        return 0;\n\n      return realsize;\n    }\n\n    int main(void)\n    {\n      struct doh_request doh_req;\n      size_t size = 1;\n      size_t nmemb = (size_t)-1; // This will cause an integer overflow\n      char *contents = \"A\";\n\n      printf(\"Simulating a call to doh_probe_write_cb with:\\n\");\n      printf(\"size = %zu\\n\", size);\n      printf(\"nmemb = %zu\\n\", nmemb);\n\n      // Initialize the dynamic buffer\n      curlx_dyn_init(&doh_req.resp_body, DYN_DOH_RESPONSE);\n\n      // This call will crash, demonstrating the vulnerability.\n      doh_probe_write_cb(contents, size, nmemb, &doh_req);\n\n      // This part will not be reached.\n      printf(\"This message should not be printed.\\n\");\n      curlx_dyn_free(&doh_req.resp_body);\n\n      return 0;\n    }\n    ```\n2.  Compile the PoC with the following command:\n    ```bash\n    gcc -o poc poc.c -lcurl\n    ```\n3.  Run the PoC:\n    ```bash\n    ./poc\n    ```\n4.  Observe the output and the crash. The program will crash with a segmentation fault, which demonstrates the vulnerability.\n\n## Supporting Material/References:\n*   Vulnerable source code: `lib/doh.c` (function `doh_probe_write_cb`)\n*   `lib/doh.h`\n*   `lib/curlx/dynbuf.h`\n*   `lib/curlx/dynbuf.c`\n\n## Impact\n\n## Summary\nAn attacker who can control a malicious DoH server can exploit this vulnerability to cause a heap overflow in the libcurl client application. This can lead to a denial of service (crash) or, potentially, arbitrary code execution in the context of the application using libcurl. Given the widespread use of libcurl, the impact of this vulnerability is high.",
+  "report_id": "h1-3399774",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3399774",
+  "tag": null,
+  "title": "Integer Overflow to Heap Overflow in DoH Response Handling"
+}

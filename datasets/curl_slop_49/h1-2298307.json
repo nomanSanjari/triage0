@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-2298307",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 2298307.",
+  "ground_truth": "fake",
+  "id": "h1-2298307",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2023-12-28T06:55:53.765Z",
+      "cve_ids": [],
+      "disclosed_at": "2024-01-02T08:15:26.866Z",
+      "id": 2298307,
+      "public": true,
+      "severity_rating": "high",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Heap Overflow"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "0feb72cd344e5ea16e405cdd15fb3dc9f32503c872427115586f0455624dcc75"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Buffer Overflow Vulnerability in WebSocket Handling\n\n## Summary:\nHello security team,\nHope you are doing well :)\n\nI would like to report a potential security vulnerability in the WebSocket handling code of the curl library. The issue is related to the usage of the `strcpy` function, which can lead to a buffer overflow if the length of the input is not properly checked. The vulnerable code snippet is located at [this link](https://github.com/curl/curl/blob/e251e858b941e29bb95a6c0d26bb45981a872585/lib/ws.c#L581).\n\n## Steps To Reproduce:\n\n1. Trigger the WebSocket functionality with a crafted request.\n2. Provide a base64-encoded nonce value that exceeds the buffer size.\n3. Observe that the `strcpy` function is used without proper bounds checking.\n\n## Fix:\nTo address this issue, it is recommended to replace the `strcpy` function with the safer alternative `strncpy` and explicitly specify the maximum length to copy. Here's an example fix:\n\n```c\nstrncpy(keyval, randstr, sizeof(keyval) - 1);\nkeyval[sizeof(keyval) - 1] = '\\0';  // Null-terminate the string\n```\n\nThis modification ensures that only a specified number of characters (up to the buffer size minus 1) are copied, preventing buffer overflow.\n\n## Reference:\nhttps://cwe.mitre.org/data/definitions/122.html\n\n## Impact\n\nThis vulnerability may allow an attacker to execute arbitrary code, potentially leading to a compromise of the application or system. An attacker could exploit this weakness by providing a specially crafted WebSocket request, causing a buffer overflow and overwriting adjacent memory.",
+  "report_id": "h1-2298307",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/2298307",
+  "tag": null,
+  "title": "Buffer Overflow Vulnerability in WebSocket Handling"
+}
