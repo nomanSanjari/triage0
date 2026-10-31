@@ -26,13 +26,16 @@ Clone the repository, point `triage0` at a bug report (Markdown, HackerOne JSON 
 ```bash
 # Verify a single report against a local or remote repository
 triage0 verify \
-  --report ./datasets/curl_slop_49/h1_report_01.md \
+  --report ./report.md \
   --repo [https://github.com/curl/curl.git](https://github.com/curl/curl.git)
 
 # Run the full benchmark evaluation harness
 triage0 eval --suite curl --include-baseline
 
 ```
+
+The `datasets/` directories hold labelled benchmark records for `eval`, not raw
+`verify` input; see `datasets/README.md` for the schema and provenance.
 
 ## Codebase Layout
 
@@ -109,8 +112,9 @@ triage0/
 │           └── table_gen.py         # Writes benchmark comparison tables directly into README.md
 │
 ├── datasets/                        # GROUND TRUTH EVALUATION DATASETS
+│   ├── README.md                    # Schema, provenance, and regeneration notes
 │   ├── curl_slop_49/                # 49 confirmed fake curl reports from public HackerOne links
-│   ├── curl_cves_215/               # 215 confirmed curl CVEs (`vuln.json`) and disclosed original reports
+│   ├── curl_cves_239/               # 239 confirmed curl CVEs (`vuln.json`) and disclosed original reports
 │   └── held_out_project/            # Disclosed reports from a second OSS project (e.g., Nextcloud / Node.js)
 │
 └── tests/                           # AUTOMATED TEST SUITE
