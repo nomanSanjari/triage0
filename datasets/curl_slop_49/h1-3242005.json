@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3242005",
+  "commit": "fd567d4f06857f4fc8e2f64ea727b1318f76ad33",
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3242005.",
+  "ground_truth": "fake",
+  "id": "h1-3242005",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": true,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-07-09T03:04:29.345Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-07-09T13:45:38.982Z",
+      "id": 3242005,
+      "public": true,
+      "severity_rating": "high",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Use After Free"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "report_version",
+    "ref_verified": true,
+    "report_sha256": "5fa2518380924a0ff58ae1f6f1ba87f81348de23b69f81ba497ec57c1daac178"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Use-After-Free in OpenSSL Keylog Callback via SSL_get_ex_data() in libcurl\n\nSummary:\n\nA Use-After-Free (UAF) vulnerability exists in libcurl when the OpenSSL SSL_CTX_set_keylog_callback is set. The callback may be invoked after the associated SSL object has been freed via SSL_free(), leading to access to a dangling pointer and potential crash or information leak via SSL_get_ex_data().\n\nThis can be triggered manually or accidentally through custom keylog callbacks when ex_data is accessed inside the callback and the SSL object is no longer valid.\n\nSecurity impact: Under specific conditions (when keylog callback is configured), it results in a segmentation fault (DoS). If further heap grooming or ex_data abuse is possible, this may lead to code execution.\n\nAffected version\n\nTested on:\n\ncurl 8.8.0 (OpenSSL 3.3.0)\nRelease-Date: 2024-06-26\nProtocols: dict file ftp ftps gopher gophers http https imap imaps mqtt pop3 pop3s rtsp scp sftp smb smbs smtp smtps telnet tftp\nFeatures: alt-svc AsynchDNS HSTS HTTP2 HTTPS-proxy IPv6 Largefile libz NTLM NTLM_WB SSL threadsafe TLS-SRP UnixSockets\nPlatform: Termux (Android 11, aarch64)\nOpenSSL: 3.3.0 built from source\n\n\n---\n\nSteps To Reproduce:\n\n1. Build the following minimal C program (tested with gcc -o segv segv.c -lssl -lcrypto):\n\n\n\n#include <openssl/ssl.h>\n#include <openssl/err.h>\n#include <stdio.h>\n#include <stdlib.h>\n\nvoid my_keylog_cb(const SSL *ssl, const char *line) {\n    printf(\"Keylog callback: %s\\n\", line);\n    // UAF: SSL already freed\n    void *ptr = SSL_get_ex_data((SSL *)ssl, 0);  // cast to remove const\n    printf(\"Data: %p\\n\", ptr);\n}\n\nint main() {\n    SSL_library_init();\n    SSL_load_error_strings();\n\n    SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());\n    SSL_CTX_set_keylog_callback(ctx, my_keylog_cb);\n\n    SSL *ssl = SSL_new(ctx);\n\n    int idx = SSL_get_ex_new_index(0, \"mydata\", NULL, NULL, NULL);\n    char *data = strdup(\"hello\");\n    SSL_set_ex_data(ssl, idx, data);\n\n    SSL_free(ssl);  // Free SSL\n\n    // Trigger callback after free\n    my_keylog_cb(ssl, \"CLIENT_RANDOM deadbeef...\");\n\n    SSL_CTX_free(ctx);\n    free(data);\n    return 0;\n}\n\n2. Run the binary:\n\n\n\n$ ./segv\nKeylog callback: CLIENT_RANDOM deadbeef...\nData: 0x0\nSegmentation fault\n\nWas an AI involved?\n\nNo, the bug was discovered through manual auditing and testing.\nHowever, AI (ChatGPT) was used only to assist in writing documentation and estimating CVSS/weakness classification (e.g., CWE-416).\n\n## Impact\n\nUnder specific conditions (when keylog callback is configured), it results in a segmentation fault (DoS). If further heap grooming or ex_data abuse is possible, this may lead to code execution.",
+  "report_id": "h1-3242005",
+  "reported_version": "8.8.0",
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3242005",
+  "tag": "curl-8_8_0",
+  "title": "Use-After-Free in OpenSSL Keylog Callback via SSL_get_ex_data() in libcurl"
+}

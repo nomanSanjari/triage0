@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3116935",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3116935.",
+  "ground_truth": "fake",
+  "id": "h1-3116935",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-04-29T07:42:35.530Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-04-29T21:16:05.238Z",
+      "id": 3116935,
+      "public": true,
+      "severity_rating": null,
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Use of a Broken or Risky Cryptographic Algorithm"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "0b2a50bf909ca18bd99feed48f97539e2906628c23fc016ae2368cfece6d52fd"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Use of a Broken or Risky Cryptographic Algorithm (CWE-327) in libcurl\n\n## Summary:\nThe DES cipher (Data Encryption Standard) is used in the `curl_ntlm_core.c` file of libcurl. DES is considered insecure due to its short key length (56 bits) and its susceptibility to brute-force attacks. Modern cryptographic standards recommend replacing DES with AES (Advanced Encryption Standard), which is more robust and secure.\n\n## Affected version\n[Which curl/libcurl version are you using to reproduce? On which platform? `curl -V` typically generates good output to include]\n\n## Steps To Reproduce:\n1. Inspect the `lib/curl_ntlm_core.c` file of the libcurl source code.\n2. Locate the use of the `kCCAlgorithmDES` constant, which corresponds to the DES cipher.\n3. Verify that DES is being used for cryptographic operations in NTLM authentication (NTLMv1).\n## Supporting Material/References:\n- File: `lib/curl_ntlm_core.c`\n- Line Reference: 228:29\n- CWE Reference: [CWE-327](https://cwe.mitre.org/data/definitions/327.html)\n\n  * [attachment / reference]\n\n## Impact\n\n## Summary:\nUsing DES compromises the security of the application due to the following points:\n- **Brute-force attacks**: The short key length makes it possible to brute-force DES keys in a reasonable amount of time with modern hardware.\n- **Cryptographic weaknesses**: DES is vulnerable to various cryptanalysis techniques, such as differential and linear cryptanalysis.\n- **Compliance risks**: DES does not meet modern cryptographic standards and could lead to non-compliance with security regulations.\n\nAn attacker exploiting this vulnerability could:\n- Intercept and decrypt sensitive data during NTLM authentication.\n- Execute man-in-the-middle (MITM) attacks to impersonate a user or server.\n- Gain unauthorized access to systems relying on NTLM authentication.\n\n---\n\n## Recommended Fix:\nReplace the use of `kCCAlgorithmDES` with `kCCAlgorithmAES`, which supports stronger encryption standards (e.g., AES-128, AES-256). This change will significantly enhance the security of NTLM authentication in libcurl.",
+  "report_id": "h1-3116935",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3116935",
+  "tag": null,
+  "title": "Use of a Broken or Risky Cryptographic Algorithm (CWE-327) in libcurl"
+}

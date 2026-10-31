@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3462525",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3462525.",
+  "ground_truth": "fake",
+  "id": "h1-3462525",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-12-12T04:24:35.869Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-12-12T07:20:25.221Z",
+      "id": 3462525,
+      "public": true,
+      "severity_rating": "critical",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Stack Overflow"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "c9034ef1d65771e09aec1a6259ed33b233a3a8641fe9bd8b54370b61d617fb8d"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Buffer Overflow in cURL Internal printf Function\n\nA critical buffer overflow vulnerability exists in the `curl_msprintf()` function in cURL's internal printf implementation. The function writes formatted output to a user-provided buffer without performing any bounds checking, allowing attackers to overflow arbitrary memory and potentially achieve arbitrary code execution.\n\n## Affected Version\nCurrent master branch (commit 141ce4be64) and potentially earlier versions\n\n## CVSS Score Breakdown\n\n**Base Score: 9.8 (Critical)**\n- **Attack Vector (AV):** Network (N)\n- **Attack Complexity (AC):** Low (L)\n- **Privileges Required (PR):** None (N)\n- **User Interaction (UI):** None (N)\n- **Scope (S):** Unchanged (U)\n- **Confidentiality (C):** High (H)\n- **Integrity (I):** High (H)\n- **Availability (A):** High (H)\n\n## Vulnerability Details\n\n### Location\n- **File:** `lib/mprintf.c`\n- **Function:** `curl_msprintf()`\n- **Lines:** 1203-1211\n\n### Root Cause\nThe vulnerability occurs because `curl_msprintf()` calls `formatf()` with the `storebuffer()` callback function, which writes directly to the provided buffer without any size validation:\n\n```c\nint curl_msprintf(char *buffer, const char *format, ...)\n{\n  va_list ap_save; /* argument pointer */\n  int retcode;\n  va_start(ap_save, format);\n  retcode = formatf(&buffer, storebuffer, format, ap_save);\n  va_end(ap_save);\n  *buffer = 0; /* we terminate this with a zero byte */\n  return retcode;\n}\n\nstatic int storebuffer(unsigned char outc, void *f)\n{\n  char **buffer = f;\n  **buffer = (char)outc;  // VULNERABILITY: No bounds checking\n  (*buffer)++;\n  return 0;\n}\n```\n\n### Attack Vector\nAn attacker can trigger this vulnerability by:\n1. Providing a malicious format string to any cURL function that internally uses `curl_msprintf()`\n2. Supplying format specifiers that generate output larger than the target buffer\n3. Causing stack corruption and potentially hijacking control flow\n\n## Proof of Concept\n\n### Test Code\n```python\nimport ctypes\n\n# Load libcurl\nlibcurl = ctypes.CDLL(\"libcurl.so.4\")\ncurl_msprintf = libcurl.curl_msprintf\n\n# Create small buffer (16 bytes)\nbuffer = ctypes.create_string_buffer(16)\n\n# Trigger overflow with long format string\nlong_format = b\"A\" * 100 + b\"%s\" + b\"B\" * 50\nresult = curl_msprintf(buffer, long_format)\n\nprint(f\"Result: {result}\")\nprint(f\"Buffer content: {buffer.value}\")\n# Buffer overflow occurs - writes beyond 16-byte buffer\n```\n\n## Impact\n\n### Business Impact\n- **Confidentiality:** Critical - Potential memory disclosure\n- **Integrity:** Critical - Arbitrary code execution\n- **Availability:** High - Application crashes and DoS\n\n### Technical Impact\n- **Arbitrary Code Execution:** Attackers can execute arbitrary code in the context of the application\n- **Memory Corruption:** Stack and heap corruption leading to crashes\n- **Information Disclosure:** Potential leakage of sensitive memory contents\n- **Denial of Service:** Application crashes and system instability\n\n## Affected Components\n\n### Primary Functions\n- `curl_msprintf()` - Direct vulnerability\n- Any function calling `curl_msprintf()` internally\n\n### Potentially Affected Areas\n- URL parsing and construction\n- Error message formatting\n- Log message generation\n- HTTP header processing\n- Cookie handling",
+  "report_id": "h1-3462525",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3462525",
+  "tag": null,
+  "title": "Buffer Overflow in cURL Internal printf Function"
+}

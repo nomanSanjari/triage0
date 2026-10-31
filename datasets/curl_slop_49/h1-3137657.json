@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3137657",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3137657.",
+  "ground_truth": "fake",
+  "id": "h1-3137657",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-05-09T20:18:25.908Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-05-10T21:16:26.583Z",
+      "id": 3137657,
+      "public": true,
+      "severity_rating": null,
+      "state": "Closed",
+      "substate": "informative",
+      "weakness": "Memory Corruption - Generic"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "94d2744d1c78ae1b1fe689811e0b472d42be326ab3f22bc39d4667a539e32718"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Memory Leak\n\n* in getparameter() via strdup() in tool_getparam.c > SIGSEGV\nProject: cURL\nFile: src/tool_getparam.c\nFunction: getparameter() → indirectly via getstr()\nDetected By: AddressSanitizer (ASan)\nCommand Used:\n\nASAN_OPTIONS=\"detect_leaks=1:verbosity=2:malloc_context_size=50\" ./curl -K <crash-file>\n\n# Overview\nA memory leak vulnerability has been identified in Curl’s configuration handling within tool_getparam.c. The issue originates from improper memory management of dynamically allocated strings using strdup(), leading to a persistent allocation that is never freed. Leak occurs in a key parsing function that processes user input, and survives until program termination, violating memory safety expectations for clean exits or tools used in pipelines and fuzzing environments. The issue lies in allocations made for fields like config->range, config->useragent, etc., without corresponding calls to free() or a cleanup routine.\nAffected Component\n- File: tool_getparam.c\n- Function: getstr()\n- Location: Line 2754\n- Bug Type: Memory Leak\n- Impact: The persistent allocation results in uncontrolled heap growth. While a memory leak alone does not directly enable arbitrary code execution, further analysis is required to assess whether heap fragmentation or manipulation could lead to memory corruption scenarios.\n\n## Technical Details\nIssue Description\nThe function getstr() is responsible for handling dynamically allocated strings used for various Curl parameters. If an existing string pointer is assigned a new value, it is properly freed before reallocation:\nstatic ParameterError getstr(char **str, const char *val, bool allowblank)\n{\n  if(*str) {\n    free(*str);\n    *str = NULL;\n  }\n\nHowever, when val is provided, strdup() is used to duplicate the string without ensuring proper memory cleanup later:\n  if(val) {\n    if(!allowblank && !val[0])\n      return PARAM_BLANK_STRING;\n  \n    *str = strdup(val);  // Potential leak occurs here\n    if(!*str)\n      return PARAM_NO_MEM;\n  }\n  return PARAM_OK;\n}\n\n\nSince there is no corresponding free() before process termination, this leads to a direct memory leak, as confirmed by ASAN:\n==7796==ERROR: LeakSanitizer: detected memory leaks\n\nDirect leak of 2 byte(s) in 1 object(s) allocated from:\n    #0 0x55fa1dc2f19e in strdup (/home/og/test/afl-test/curl/build/src/curl+0xdf19e)\n    #1 0x55fa1dca3e21 in getparameter /home/og/test/afl-test/curl/src/tool_getparam.c:2754\n    #2 0x55fa1dce687b in parseconfig /home/og/test/afl-test/curl/src/tool_parsecfg.c:175\n\nControl Flow Analysis\nThe memory allocation propagates through several functions, increasing impact:\ngetparameter() → parseconfig() → parse_args() → operate() → main()\n\n\nThis suggests that user-provided configuration values influence the strdup() call, meaning an attacker might manipulate inputs to generate excessive heap allocations.\n\nSanitizer Output (Summary)\n\n==7796==ERROR: LeakSanitizer: detected memory leaks\n\nDirect leak of 2 byte(s) in 1 object(s) allocated from:\n    #0 0x55fa1dc2f19e in strdup\n    #1 0x55fa1dca3e21 in getparameter /curl/src/tool_getparam.c:2754:35\n    #2 0x55fa1dce687b in parseconfig /curl/src/tool_parsecfg.c:175:13\n    #3 0x55fa1dca7c03 in getparameter /curl/src/tool_getparam.c:2793:10\n    ...\nSUMMARY: AddressSanitizer: 2 byte(s) leaked in 1 allocation(s).\n\n## Root Cause\n\nThe function getstr() is used to safely copy a string into a heap-allocated buffer, freeing any previous value:\n\nstatic ParameterError getstr(char **str, const char *val, bool allowblank)\n{\n  if(*str) {\n    free(*str);\n    *str = NULL;\n  }\n  if(val) {\n    if(!allowblank && !val[0])\n      return PARAM_BLANK_STRING;\n\n    *str = strdup(val);  // <-- Allocation not freed later\n    if(!*str)\n      return PARAM_NO_MEM;\n  }\n  return PARAM_OK;\n}\n\nThe call site inside getparameter() likely sets *str (e.g. config->range or another config field) but the value is never freed at the end of execution or between subsequent calls, especially in a fuzzing or crashing scenario.\n\n- Execution Flow:\ngetparameter() → parseconfig() → parse_args() → operate() → main()\n\n## Impact\n\nCauses memory leaks on malformed or crafted config files (especially during fuzzing).\n\n    Affects test reliability and resource handling.\n\n    May mask deeper issues or confuse fuzzers due to retained allocations.\n\n- The allocation remains in memory until exit, resulting in a direct memory leak.",
+  "report_id": "h1-3137657",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3137657",
+  "tag": null,
+  "title": "Memory Leak"
+}

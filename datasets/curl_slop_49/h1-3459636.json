@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3459636",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3459636.",
+  "ground_truth": "fake",
+  "id": "h1-3459636",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-12-09T18:59:59.101Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-12-09T23:08:49.796Z",
+      "id": 3459636,
+      "public": true,
+      "severity_rating": null,
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Stack Overflow"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "baf913e0bd20a12e1572770922d9c629c60e29b71e58366088232eb9f122c46d"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Stack Buffer Overflow in cURL wolfSSL Backend (lib/vtls/wolfssl.c)\n\n**Summary:** \n\nA stack-based buffer overflow exists in the wssl_strerror function of cURL's wolfSSL TLS backend. The function uses an unsafe strcpy call, relying solely on a DEBUGASSERT macro for boundary checking. This macro is disabled in production release builds (-DNDEBUG), allowing memory corruption when the function is called with a buffer size parameter of 40 bytes or less.\n\n**Affected Component:**\n\nFile: lib/vtls/wolfssl.c\n\nFunction: wssl_strerror (lines 1542-1556)\n\nVulnerable Code: Line 1552: strcpy(buf, msg);\n\nProof of Concept:\nThe vulnerability is confirmed by compiling and executing the following test program, which simulates the function in a release build context:\n\nCreate the test file poc.c:\n\n\n#include <stdio.h>\n#include <string.h>\n// Simulates wssl_strerror in a RELEASE build (DEBUGASSERT is a no-op)\nstatic char *wssl_strerror(unsigned long error, char *buf, unsigned long size) {\n    *buf = '\\0';\n    // Simulate wolfSSL_ERR_error_string_n writing nothing to the buffer\n    if(!*buf) {\n        const char *msg = error ? \"Unknown error\" : \"No error\";\n        strcpy(buf, msg); // VULNERABLE CALL: ignores `size`\n    }\n    return buf;\n}\nint main() {\n    // This buffer is too small for \"Unknown error\" + null terminator (needs 13 bytes)\n    char small_buffer[12];\n    wssl_strerror(1, small_buffer, 12); // This will overflow\n    printf(\"Result: %s\\n\", small_buffer);\n    return 0;\n}\n\n\n**Compile with AddressSanitizer to detect memory corruption:**\n\n\ngcc -fsanitize=address -g -o poc poc.c\n\n**Execute the program to trigger the overflow:**\n\n./poc\n\n**Observed Result:**\nThe program terminates due to a stack-buffer-overflow detected by AddressSanitizer. The diagnostic output shows a 14-byte write overflowing a 12-byte stack buffer, with the trace leading directly to the strcpy call inside wssl_strerror.\n\n## Impact\n\n## Summary:\nThis buffer overflow corrupts adjacent stack memory. As the wssl_strerror function is part of cURL's TLS error handling path, which processes data influenced by external network communication, this vulnerability could potentially lead to:\n\nDenial of Service: Application crash.\n\nArbitrary Code Execution: Under specific conditions, an attacker could exploit the memory corruption to hijack control flow.\n\nThe severity is heightened because libcurl is a ubiquitous library embedded in countless applications and devices.",
+  "report_id": "h1-3459636",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3459636",
+  "tag": null,
+  "title": "Stack Buffer Overflow in cURL wolfSSL Backend (lib/vtls/wolfssl.c)"
+}

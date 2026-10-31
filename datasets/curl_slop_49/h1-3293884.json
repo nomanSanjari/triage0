@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3293884",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3293884.",
+  "ground_truth": "fake",
+  "id": "h1-3293884",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-08-10T20:24:50.847Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-08-10T21:37:42.483Z",
+      "id": 3293884,
+      "public": true,
+      "severity_rating": "medium",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Path Traversal"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "2bbf5535607179332344130f8c761091f1f78aba60d4b58ea841932d4b262e18"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Vulnerability Report: Local File Disclosure via file:// Protocol in cURL\n\nSummary\nA security vulnerability has been identified that allows unauthorized local file system access via the file:// protocol in cURL, particularly when executed with elevated privileges (e.g., sudo). This could lead to sensitive data exposure, including password hashes stored in /etc/shadow.\n\nSteps to Reproduce\nLocating Protocol Handlers\nFirst, I searched for protocol registration in cURL's source:\n// Found in lib/url.c\nstatic const struct Curl_handler * const protocols[] = {\n  &Curl_handler_dict,\n  &Curl_handler_file,  // ← This is what we're interested in\n  &Curl_handler_ftp,\n  ...\n};\nKey Insight:\nThe file handler is enabled by default in the protocols array.\n\nExamining the File Protocol Handler\nI traced the file handler implementation:\n\n// lib/file.c\nstatic CURLcode file_do(struct Curl_easy *data, bool *done)\n{\n  char *path = data->state.up.path; // ← Raw path from URL\n  FILE *file = fopen(path, \"rb\");   // ← Direct filesystem access\n  ...\n}\nVulnerability Found:\nNo validation of:\n\nPath traversal sequences (../)\nSymbolic links\nFilesystem permissions\n\n\n1. Basic Local File Read\ncurl \"file:///etc/passwd\"  # Reads system user info\n2. Privileged File Access (with sudo)\nsudo curl \"file:///etc/shadow\"  # Exposes password hashes\n\n\necho \"test\" > /tmp/test_file\ncurl \"file:///tmp/test_file\" \nsudo curl \"file:///etc/shadow\"  #\nExpected Output:\nroot:*:\nkali:$\n[...]\n\nReferences\ncURL Security Documentation - Official security considerations for cURL\nCURLOPT_PROTOCOLS man page - Protocol restriction options\n\n## Impact\nConfidentiality Breach: Read access to sensitive system files\nPrivilege Escalation: Potential root access via hash cracking\nBusiness Impact:\nCritical for systems processing sensitive data\nOften missed in containerized environments",
+  "report_id": "h1-3293884",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3293884",
+  "tag": null,
+  "title": "Vulnerability Report: Local File Disclosure via file:// Protocol in cURL"
+}
