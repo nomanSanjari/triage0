@@ -101,16 +101,16 @@ The validation boundaries behave as follows:
 
 The curated benchmark uses these directories:
 
-- `datasets/curl_slop_49/`: confirmed fake reports (Markdown, text, JSON, or JSONL)
-- `datasets/curl_cves_215/`: real CVE reports (Markdown, text, JSON, or JSONL)
+- `datasets/curl_slop_49/`: confirmed fake reports (one JSON record per file)
+- `datasets/curl_cves_239/`: real CVE reports (one JSON record per file)
 
 Labels come from which directory a report is in: fake vs. real. Markdown/text files are
 one report each. JSON may be one record, a list of records, or `{"reports": [...]}`.
 Records should have report prose in `report`, `description`, `body`, `text`, or `content`;
 OSV-like records can use `summary` and `details`. JSONL has one record per line.
 
-The uploaded repository scaffold did not include either dataset directory. Add the curated
-dataset files before running the full 49-fake / 215-real benchmark.
+Both dataset directories are committed. `datasets/README.md` documents the record
+schema, provenance, and how to regenerate the snapshot.
 
 Within one dataset, duplicate IDs are qualified by relative source path; duplicate IDs
 inside one source file are rejected as ambiguous. Pass `id_prefix="fake:"` and
@@ -132,7 +132,7 @@ from triage0.eval.baseline import load_reports, run_baseline
 reports = load_reports(
     "datasets/curl_slop_49", "fake", id_prefix="fake:"
 ) + load_reports(
-    "datasets/curl_cves_215", "real", id_prefix="real:"
+    "datasets/curl_cves_239", "real", id_prefix="real:"
 )
 result = run_baseline(
     reports,
