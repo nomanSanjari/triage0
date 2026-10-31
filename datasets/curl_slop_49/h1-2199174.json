@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-2199174",
+  "commit": "d755a5f7c009dd63a61b2c745180d8ba937cbfeb",
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 2199174.",
+  "ground_truth": "fake",
+  "id": "h1-2199174",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": true,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2023-10-10T04:25:20.591Z",
+      "cve_ids": [],
+      "disclosed_at": "2023-10-16T12:32:27.535Z",
+      "id": 2199174,
+      "public": true,
+      "severity_rating": "critical",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Information Disclosure"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "report_version",
+    "ref_verified": true,
+    "report_sha256": "b2a077a7468d422900319a8bc1ecb09b614b8f5e7b88506fb30e2b3f3d631ce6"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "[Critical] Curl CVE-2023-38545 vulnerability code changes are disclosed on the internet\n\n## Summary:\nCurl CVE-2023-38545 vulnerability code changes are disclosed on the internet\n\n## Steps To Reproduce:\nTo replicate the issue, I have searched in the Bard about this vulnerability. It disclosed what this vulnerability is about, code changes made for this fix, who made these changes, commit details etc even though this information is not released yet on the internet. In addition to it, I was able to easily craft the exploit based on the information available. Remove this information from the internet ASAP!!!!\n\nVulnerability information:\n\nThe vulnerability is caused by an integer overflow in the curl_easy_setopt() function.\nThe vulnerability can be exploited by an attacker to execute arbitrary code on a vulnerable system.\nThe vulnerability is fixed in curl 8.4.0 and higher.\n\nCode fixes:\nThe following code changes fixed CVE-2023-38545 in curl:\n\nC\n/*\n * CVE-2023-38545: Integer overflow in curl_easy_setopt()\n *\n * This vulnerability could be exploited to cause a denial-of-service attack or\n * to execute arbitrary code on the victim's system.\n *\n * The following code changes fix this vulnerability by checking the value of the\n * timeout argument before passing it to the internal curl function.\n */\n\n#include \"curl.h\"\n\n/*\n * curl_easy_setopt()\n *\n * Sets an option value for a curl handle.\n *\n * @param handle The curl handle.\n * @param option The option to set.\n * @param param The value to set the option to.\n *\n * @return CURLE_OK on success, or a curl error code on failure.\n */\n\nCURLcode curl_easy_setopt(CURL *handle, CURLoption option, ...)\n{\n  va_list param;\n  CURLcode ret;\n\n  va_start(param, option);\n\n  switch (option) {\n    case CURLOPT_TIMEOUT: {\n      long timeout = va_arg(param, long);\n\n      /* Check for integer overflow. */\n      if (timeout < 0 || timeout > LONG_MAX) {\n        va_end(param);\n        return CURLE_BAD_FUNCTION_ARGUMENT;\n      }\n\n      ret = curl_easy_setopt_timeout(handle, timeout);\n      break;\n    }\n\n    default:\n      ret = curl_easy_setopt_custom(handle, option, param);\n      break;\n  }\n\n  va_end(param);\n\n  return ret;\n}\nUse code with caution. Learn more\nThese code changes were made in commit 9414975, which was released in curl version 8.4.0.\n\n\nWho made these changes and commit details:\nThe code changes to fix CVE-2023-38545 were made by Dxxxxl Sxxxxg, the maintainer of curl. The changes were made in commit 9414975, which was released in curl version 8.4.0.\n\nDxxxxl Sxxxxg is a Swedish computer programmer and the creator and maintainer of curl. He has been working on curl for over 20 years and is considered to be one of the leading experts on web transfer protocols.\n\n## Impact\n\nDisclosing undisclosed vulnerability code can have a number of negative implications, including:\n\nPutting users at risk. Once a vulnerability is disclosed publicly, attackers can start exploiting it. This can put users of the affected software at risk of data breaches, malware infections, and other attacks.\nDamaging the vendor's reputation. Vendors take pride in the security of their products and services. Disclosing a vulnerability publicly can damage the vendor's reputation and lead to lost customers.\nMaking it more difficult for the vendor to fix the vulnerability. If a vulnerability is disclosed publicly before the vendor has a chance to fix it, it can make it more difficult for the vendor to coordinate a patch release. This can leave users vulnerable to attacks for longer.\nEncouraging other attackers to find and disclose vulnerabilities. When attackers see that they can get attention and recognition by disclosing vulnerabilities, they are more likely to look for them. This can lead to an increase in the number of vulnerabilities that are disclosed publicly.",
+  "report_id": "h1-2199174",
+  "reported_version": "8.4.0",
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/2199174",
+  "tag": "curl-8_4_0",
+  "title": "[Critical] Curl CVE-2023-38545 vulnerability code changes are disclosed on the internet"
+}
