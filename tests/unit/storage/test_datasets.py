@@ -7,6 +7,7 @@ the JSON files are the authoritative record of what was fetched.
 from __future__ import annotations
 
 import json
+import re
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterator
@@ -25,6 +26,15 @@ FORBIDDEN_KEYS = {
     "voters",
     "vote_count",
 }
+
+CVE_PATTERN = re.compile(r"CVE-\d{4}-\d+")
+ADVISORY_HEADERS = (
+    "Version ranges:",
+    "Last affected:",
+    "Fixed in:",
+    "CWE:",
+    "Advisory:",
+)
 
 
 def records(directory: Path) -> list[dict[str, Any]]:
@@ -153,3 +163,54 @@ def test_baseline_loader_reads_both_datasets() -> None:
         assert row["ground_truth"] == "real"
     for row in fake:
         assert row["ground_truth"] == "fake"
+
+
+def test_report_text_does_not_name_its_own_cve() -> None:
+    # Advisory records are excluded from the real-vs-fake score. Two of them
+    # quote their own CVE inside curl's official details text, which is source
+    # data rather than a generated label.
+    for record in records(CVE_DIR):
+        if record["source"] == "osv_advisory":
+            continue
+        assert record["id"] not in record["report"], record["id"]
+
+
+def test_report_text_has_no_advisory_header() -> None:
+    # The old advisory fallback prefixed generated metadata lines, including an
+    # "Advisory: https://curl.se/docs/CVE-..." link. Body text is source data,
+    # so a report may still link to some other advisory.
+    for directory in (SLOP_DIR, CVE_DIR):
+        for record in records(directory):
+            assert not record["report"].startswith("CVE-"), record["id"]
+            for line in record["report"].splitlines():
+                assert not line.startswith(ADVISORY_HEADERS), record["id"]
+
+
+def test_contains_cve_rule_does_not_beat_always_real() -> None:
+    # The rule is a leak detector, not a model: if "the text contains CVE-"
+    # scores better than always guessing "real", the dataset is giving the
+    # answer away. Advisory records are not part of the real-vs-fake score.
+    score = [
+        record for record in records(CVE_DIR) if record["source"] != "osv_advisory"
+    ]
+    score.extend(records(SLOP_DIR))
+    correct = sum(
+        bool(CVE_PATTERN.search(record["report"]))
+        == (record["ground_truth"] == "real")
+        for record in score
+    )
+    always_real = (
+        sum(record["ground_truth"] == "real" for record in score) / len(score)
+    )
+    assert correct / len(score) < always_real
+
+
+def test_advisory_records_are_marked_for_exclusion() -> None:
+    advisory = [
+        record for record in records(CVE_DIR) if record["source"] == "osv_advisory"
+    ]
+    assert len(advisory) == 90
+    assert all(record["provenance"]["fallback_reason"] for record in advisory)
+    assert not any(
+        record["source"] == "osv_advisory" for record in records(SLOP_DIR)
+    )
