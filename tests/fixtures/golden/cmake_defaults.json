@@ -1,0 +1,108 @@
+{
+  "case_id": "cmake_defaults",
+  "description": "Self-written report about curl's CMake defaults: one wrong default, one right one, one stated in the negative, and a line in a header that only exists after a build. Covers build flag CONFIRMED + CONTRADICTED (incl. a negated claim) and a precise file/line claim that is CANT_CHECK.",
+  "repo_url": "https://github.com/curl/curl",
+  "tag": "curl-8_23_0",
+  "commit": "3163ec065643ba20709f190111f42c3e1fe95273",
+  "report": {
+    "report_id": "golden-cmake-defaults",
+    "source": "markdown",
+    "project": "curl",
+    "title": "Default CMake build of curl 8.23.0 enables c-ares",
+    "body": "With a plain CMake build of curl 8.23.0, c-ares is on by default: ENABLE_ARES defaults to ON. The default build also builds the curl tool (BUILD_CURL_EXE is ON), and cookies stay supported because CURL_DISABLE_COOKIES is not enabled by default.\n\nYou can see c-ares is compiled in: line 40 of lib/curl_config.h is `#define USE_ARES 1`.\n"
+  },
+  "requested_version": "curl 8.23.0",
+  "expected_claims": [
+    {
+      "claim": {
+        "kind": "build_flag",
+        "claim_id": "c1",
+        "statement": "ENABLE_ARES is ON by default in the CMake build",
+        "source_excerpt": "ENABLE_ARES defaults to ON",
+        "build_system": "cmake",
+        "flag": "ENABLE_ARES",
+        "expected_enabled": true
+      },
+      "expected_status": "CONTRADICTED",
+      "evidence": [
+        {
+          "kind": "line",
+          "path": "CMakeLists.txt",
+          "line": 184,
+          "text": "option(ENABLE_ARES \"Enable c-ares support\" OFF)",
+          "note": "The only option() or set() for ENABLE_ARES in the CMake files."
+        }
+      ]
+    },
+    {
+      "claim": {
+        "kind": "build_flag",
+        "claim_id": "c2",
+        "statement": "BUILD_CURL_EXE is ON by default in the CMake build",
+        "source_excerpt": "BUILD_CURL_EXE is ON",
+        "build_system": "cmake",
+        "flag": "BUILD_CURL_EXE",
+        "expected_enabled": true
+      },
+      "expected_status": "CONFIRMED",
+      "evidence": [
+        {
+          "kind": "line",
+          "path": "CMakeLists.txt",
+          "line": 179,
+          "text": "option(BUILD_CURL_EXE \"Build curl executable\" ON)",
+          "note": "The only option() or set() for BUILD_CURL_EXE in the CMake files."
+        }
+      ]
+    },
+    {
+      "claim": {
+        "kind": "build_flag",
+        "claim_id": "c3",
+        "statement": "CURL_DISABLE_COOKIES is not enabled by default in the CMake build",
+        "source_excerpt": "CURL_DISABLE_COOKIES is not enabled by default",
+        "build_system": "cmake",
+        "flag": "CURL_DISABLE_COOKIES",
+        "expected_enabled": false
+      },
+      "expected_status": "CONFIRMED",
+      "evidence": [
+        {
+          "kind": "line",
+          "path": "CMakeLists.txt",
+          "line": 427,
+          "text": "option(CURL_DISABLE_COOKIES \"Disable cookies support\" OFF)",
+          "note": "Negated claim: expected_enabled is false and the default is OFF. The only option() or set() for it in the CMake files."
+        }
+      ]
+    },
+    {
+      "claim": {
+        "kind": "file_line",
+        "claim_id": "c4",
+        "statement": "lib/curl_config.h line 40 is #define USE_ARES 1",
+        "source_excerpt": "line 40 of lib/curl_config.h is `#define USE_ARES 1`",
+        "path": "lib/curl_config.h",
+        "line_start": 40,
+        "expected_snippet": "#define USE_ARES 1"
+      },
+      "expected_status": "CANT_CHECK",
+      "evidence": [
+        {
+          "kind": "line",
+          "path": "configure.ac",
+          "line": 40,
+          "text": "AC_CONFIG_HEADERS(lib/curl_config.h)",
+          "note": "lib/curl_config.h is not in git; configure generates it."
+        },
+        {
+          "kind": "line",
+          "path": "lib/CMakeLists.txt",
+          "line": 29,
+          "text": "configure_file(\"curl_config-cmake.h.in\" \"${CMAKE_CURRENT_BINARY_DIR}/curl_config.h\")",
+          "note": "CMake generates it too, into the build directory. Its contents depend on the build options, so the source can't settle this claim. Pending the not-found agreement (#10)."
+        }
+      ]
+    }
+  ]
+}

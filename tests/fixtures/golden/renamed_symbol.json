@@ -1,0 +1,72 @@
+{
+  "case_id": "renamed_symbol",
+  "description": "Self-written report that uses a function name curl renamed before 8.23.0, plus a function name that never existed. For #11: the renamed one must be rescued, never CONTRADICTED; the made-up one is CONTRADICTED after the history check. Both labels are pending the not-found agreement (#10).",
+  "repo_url": "https://github.com/curl/curl",
+  "tag": "curl-8_23_0",
+  "commit": "3163ec065643ba20709f190111f42c3e1fe95273",
+  "report": {
+    "report_id": "golden-renamed-symbol",
+    "source": "markdown",
+    "project": "curl",
+    "title": "Cookie header overflow in curl 8.23.0",
+    "body": "Found in curl 8.23.0.\n\nWhen a server sends a long Set-Cookie header, `Curl_cookie_parse_fast` in lib/cookie.c builds the cookie line with `Curl_dyn_add` from lib/dynbuf.c and never checks the total length.\n"
+  },
+  "requested_version": "curl 8.23.0",
+  "expected_claims": [
+    {
+      "claim": {
+        "kind": "symbol",
+        "claim_id": "c1",
+        "statement": "Curl_cookie_parse_fast is a function in lib/cookie.c",
+        "source_excerpt": "`Curl_cookie_parse_fast` in lib/cookie.c",
+        "symbol": "Curl_cookie_parse_fast",
+        "symbol_kind": "function",
+        "file_hint": "lib/cookie.c"
+      },
+      "expected_status": "CONTRADICTED",
+      "evidence": [
+        {
+          "kind": "absent",
+          "pattern": "Curl_cookie_parse_fast",
+          "scope": "history",
+          "note": "Never existed in curl. Pending the not-found agreement (#10): a checker reports it as not found, and CONTRADICTED comes only after the history check."
+        }
+      ]
+    },
+    {
+      "claim": {
+        "kind": "symbol",
+        "claim_id": "c2",
+        "statement": "Curl_dyn_add is a function in lib/dynbuf.c",
+        "source_excerpt": "`Curl_dyn_add` from lib/dynbuf.c",
+        "symbol": "Curl_dyn_add",
+        "symbol_kind": "function",
+        "file_hint": "lib/dynbuf.c"
+      },
+      "expected_status": "CANT_CHECK",
+      "evidence": [
+        {
+          "kind": "absent",
+          "pattern": "Curl_dyn_add",
+          "scope": "tree",
+          "note": "Gone from 8.23.0 under this name."
+        },
+        {
+          "kind": "line",
+          "path": "lib/dynbuf.c",
+          "line": 180,
+          "text": "CURLcode Curl_dyn_add(struct dynbuf *s, const char *str)",
+          "commit": "1c3149881769e7bd79b072e48374e4c2b3678b2f",
+          "note": "The old definition, at curl-8_13_0."
+        },
+        {
+          "kind": "line",
+          "path": "lib/curlx/dynbuf.c",
+          "line": 173,
+          "text": "CURLcode curlx_dyn_add(struct dynbuf *s, const char *str)",
+          "note": "Renamed to curlx_dyn_add in commit 255aac56f9 (\"curlx: move into to curlx/\"), first released in 8.14.0. Pending the not-found agreement (#10): the label may change once #11 can report a rename."
+        }
+      ]
+    }
+  ]
+}
