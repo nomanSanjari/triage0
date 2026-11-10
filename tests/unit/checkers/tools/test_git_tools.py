@@ -89,10 +89,42 @@ def test_find_versions_rejects_dev_builds() -> None:
     assert find_versions("curl 8.13.0-DEV", "curl") == set()
 
 
+def test_find_versions_reads_the_projects_library_version() -> None:
+    assert find_versions("libcurl/8.15.0", "curl") == {(8, 15, 0)}
+
+
 def test_find_versions_ignores_other_projects_named_like_us() -> None:
     # "name/x.y.z" belongs to that name (like OpenSSL/3.0.2), so it's skipped.
-    assert find_versions("libcurl/8.13.0", "curl") == set()
-    assert find_versions("libcurl/8.13.0 and curl 8.12.1", "curl") == {(8, 12, 1)}
+    assert find_versions("pycurl/7.45.2", "curl") == set()
+
+
+def test_find_versions_fallback_skips_cvss_scores() -> None:
+    # Lines from real fake reports (curl_slop_49 h1-3395218, h1-3231321).
+    # The scores used to be read as curl 6.5 and 8.6.
+    text = (
+        "CVSS Score: 6.5 (Medium)\n"
+        "| **Affected Version** | **8.14.1** (and likely prior versions) |\n"
+        "| **CVSS 3.1 Score** | **8.6 (High)** |\n"
+    )
+    assert find_versions(text, "curl") == {(8, 14, 1)}
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # Real fake reports h1-3403880 and h1-3418646, which the fallback
+        # already read correctly before the score and libcurl rules.
+        (
+            "This PoC was compiled against libcurl (system version 8.5.0) and confirmed the vulnerability:",
+            {(8, 5, 0)},
+        ),
+        ("curl/libcurl version :  8.15.0", {(8, 15, 0)}),
+    ],
+)
+def test_find_versions_fallback_still_reads_real_report_versions(
+    text: str, expected: set[tuple[int, ...]]
+) -> None:
+    assert find_versions(text, "curl") == expected
 
 
 def test_find_versions_rejects_bad_project_name() -> None:

@@ -45,8 +45,15 @@ _VERSION = r"\d+(?:[._]\d+)+"
 # commit after the previous release up to this tag, so we can't pick one.
 _VERSION_END = r"(?![-\w]|[._]\d)"
 
-# A bare version in prose, not part of a longer token like "libcurl/8.1".
+# A bare version in prose, not part of a longer token like "OpenSSL/3.0.2".
 _BARE_VERSION_RE = re.compile(rf"(?<![\w./-])({_VERSION}){_VERSION_END}")
+
+# Reports often rate themselves ("CVSS Score: 6.5"), and a score looks just
+# like a version. A number whose label is only punctuation away is a score.
+_SCORE_LABEL_RE = re.compile(r"\b(?:cvss|score)\W*\Z", re.IGNORECASE)
+# The label must sit right before the number, so a short look back is enough
+# and keeps the check linear on long reports.
+_SCORE_LOOKBACK_CHARS = 40
 
 # Release tags we understand: optional name prefix + "-" or "_", optional
 # "v", then a version. Anything else (rc tags, tags starting with "-")
@@ -101,23 +108,30 @@ def find_versions(text: str, project: str) -> set[Version]:
     """Return the release versions the report text mentions for `project`.
 
     Versions written right after the project name ("curl 8.13.0",
-    "curl/8.13.0") win. Only if there are none do we fall back to every
-    bare version in the text, since reports also mention versions of other
-    software (OpenSSL/3.0.2, HTTP/1.1) and IP addresses. In the fallback,
-    IPv4-looking values are skipped; a real four-part version found there
-    is skipped too, which ends in CANT_CHECK rather than a wrong tag.
+    "curl/8.13.0") win. The project's library counts as the project
+    ("libcurl/8.13.0"), since `curl -V` prints both. Only if there are none
+    do we fall back to every bare version in the text, since reports also
+    mention versions of other software (OpenSSL/3.0.2, HTTP/1.1), IP
+    addresses and scores. In the fallback, IPv4-looking values and CVSS
+    scores are skipped; a real four-part version found there is skipped
+    too, which ends in CANT_CHECK rather than a wrong tag.
     """
     if not _PROJECT_RE.fullmatch(project):
         raise ValueError(f"invalid project name: {project!r}")
     anchored = re.compile(
-        rf"(?<![\w-]){re.escape(project)}[ /-]v?({_VERSION}){_VERSION_END}",
+        rf"(?<![\w-])(?:lib)?{re.escape(project)}[ /-]v?({_VERSION}){_VERSION_END}",
         re.IGNORECASE,
     )
     found = {_to_version(m) for m in anchored.findall(text)}
     if found:
         return found
-    bare = {_to_version(m) for m in _BARE_VERSION_RE.findall(text)}
-    return {v for v in bare if not _looks_like_ip_address(v)}
+    bare: set[Version] = set()
+    for match in _BARE_VERSION_RE.finditer(text):
+        before = text[max(0, match.start() - _SCORE_LOOKBACK_CHARS) : match.start()]
+        version = _to_version(match.group(1))
+        if not _SCORE_LABEL_RE.search(before) and not _looks_like_ip_address(version):
+            bare.add(version)
+    return bare
 
 
 def tag_version(tag: str) -> Version | None:
