@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3468410",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3468410.",
+  "ground_truth": "fake",
+  "id": "h1-3468410",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-12-17T05:44:02.316Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-12-17T13:20:49.561Z",
+      "id": 3468410,
+      "public": true,
+      "severity_rating": null,
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": null
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "054c1855024573ecf1c692845bf9e7c149ef58c874b3a41711d4767ec6bdcec8"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Heap buffer overflow in Curl_ipv4_resolve_r due to incorrect buffer alignment and size calculation on AmigaOS\n\nSummary:\n\nA heap-based buffer overflow exists in the AmigaOS-specific DNS resolution\nfunction Curl_ipv4_resolve_r located in lib/amigaos.c.\n\nThe function uses gethostbyname_r() with a fixed-size heap buffer\n(CURL_HOSTENT_SIZE) and performs incorrect pointer arithmetic when calculating\nthe data buffer offset and size. This fails to account for structure alignment\nand padding requirements, which can result in the resolver writing past the\nallocated heap buffer.\n\nThe issue is specific to AmigaOS builds using the bsdsocket.library backend.\n\n## Impact\n\nImpact Summary:\n\nAn attacker who can influence DNS responses or cause resolution of attacker-\ncontrolled hostnames may trigger heap memory corruption in curl or libcurl\nprocesses on AmigaOS.\n\nPotential impacts include:\n- Process crash (denial of service)\n- Heap memory corruption\n- Possible code execution depending on heap layout and mitigations\n\nThe impact is limited to AmigaOS platforms.",
+  "report_id": "h1-3468410",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3468410",
+  "tag": null,
+  "title": "Heap buffer overflow in Curl_ipv4_resolve_r due to incorrect buffer alignment and size calculation on AmigaOS"
+}

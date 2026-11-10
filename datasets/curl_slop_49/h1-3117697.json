@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3117697",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3117697.",
+  "ground_truth": "fake",
+  "id": "h1-3117697",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-04-29T10:50:02.405Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-04-29T21:16:18.948Z",
+      "id": 3117697,
+      "public": true,
+      "severity_rating": null,
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Double Free"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "f9452e994d518d4c7dc9419971032099ca7e049dc69177cb493d25adca66958a"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Double Free Vulnerability in `libcurl` Cookie Management (`cookie.c`)\n\n## Description:\nTwo **Double Free** vulnerabilities have been identified in the `cookie.c` file of the `libcurl` library. These issues occur due to improper memory management, where the same memory area is freed multiple times under certain conditions. Below are clear steps to reproduce each vulnerability.\n\n---\n\n### Summary:\nThe vulnerabilities occur in the following scenarios:\n1. **`replace_existing` Function**: A cookie object is freed without ensuring it has not already been removed from the list, leading to double-free.\n2. **`Curl_cookie_add` Function**: On errors, memory allocated for a cookie object is freed again, even if it was previously released.\n\n## Steps To Reproduce:\n\n### Case 1: Vulnerability in `replace_existing` Function\n1. Create multiple cookies with identical names, domains, and paths.\n2. Trigger a scenario where an existing cookie needs to be replaced (e.g., by adding a new cookie with the same attributes).\n3. Observe the program crash or unexpected behavior due to double-free in the following code:\n   ```c\n   if (replace_n) {\n       struct Cookie *repl = Curl_node_elem(replace_n);\n       Curl_node_remove(replace_n); // Remove from the list\n       freecookie(repl);            // Free memory (double-free if already removed)\n   }\n   ```\n\n### Case 2: Vulnerability in `Curl_cookie_add` Function\n1. Add a malformed or invalid cookie header line to the cookie input file.\n2. Ensure the program encounters an error during cookie parsing.\n3. Observe the program crash or unexpected behavior due to double-free in the following code:\n   ```c\n   fail:\n       freecookie(co); // Memory freed again even if already released\n       return NULL;\n   ```\n\n---\n\n## Impact\n\n### Summary\nThe **Double Free** vulnerabilities in `libcurl` can have severe security implications:\n1. **Program Crash**: A double-free leads to undefined behavior, often resulting in segmentation faults.\n2. **Arbitrary Code Execution**: Attackers could exploit this issue to execute arbitrary code in the context of the vulnerable program.\n3. **Data Integrity**: Memory corruption caused by this vulnerability can lead to data leakage or integrity issues, compromising the application's reliability.\n4. **Denial of Service (DoS)**: Exploiting this vulnerability could result in a denial-of-service condition.\n\nThese vulnerabilities can be exploited by attackers to compromise the security and stability of any applications or systems using `libcurl`.\n\n---",
+  "report_id": "h1-3117697",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3117697",
+  "tag": null,
+  "title": "Double Free Vulnerability in `libcurl` Cookie Management (`cookie.c`)"
+}

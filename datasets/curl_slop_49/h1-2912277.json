@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-2912277",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 2912277.",
+  "ground_truth": "fake",
+  "id": "h1-2912277",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2024-12-23T06:24:30.519Z",
+      "cve_ids": [],
+      "disclosed_at": "2024-12-27T12:42:23.462Z",
+      "id": 2912277,
+      "public": true,
+      "severity_rating": "medium",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Information Disclosure"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "5e15f87a39c7f12be04eed96505b044e03eae438bd390d43a98380beb11198f1"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Hackers Attack Curl Vulnerability Accessing Sensitive Information\n\n## Summary:\n[A critical security flaw in Curl. This is a data transfer tool and may potentially allow attackers to access sensitive information.]\n\n## Affected version\n[6.5 through 8.11.0]\n\n## Steps To Reproduce:\nSecurity vulnerability when curl is used with a .netrc file for the credentials and also uses a HTTP redirect. Curl may leak passwords used for the host that redirects it to the next host.\n\n1.The .netrc file contains an entry matching the redirect target hostname\n2. The entry either omits the password or both the login and password\n\n## Supporting Material/References:\n Affects both the libcurl library and the curl command-line tool.\n\n## Impact\n\n## Summary:\nA curl transfer to a.tld redirect to b.tld along with the .netrc file entry for b.tld password vulnerability. This may expose passwords when it passes through the network.",
+  "report_id": "h1-2912277",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/2912277",
+  "tag": null,
+  "title": "Hackers Attack Curl Vulnerability Accessing Sensitive Information"
+}

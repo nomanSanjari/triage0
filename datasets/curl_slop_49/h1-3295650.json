@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3295650",
+  "commit": "7ab9d43720bc34d9aa351c7ca683c1668ebf8335",
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3295650.",
+  "ground_truth": "fake",
+  "id": "h1-3295650",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": true,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-08-12T08:28:19.519Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-08-12T08:33:15.149Z",
+      "id": 3295650,
+      "public": true,
+      "severity_rating": "critical",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Use of Hard-coded Cryptographic Key"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "report_version",
+    "ref_verified": true,
+    "report_sha256": "fb3a7ee692247c62aea9f8ba8df3e82b46c4668d7f632196f7efae5fa1feec1f"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Exposure of Hard-coded Private Keys and Credentials in curl Source Repository (CWE-321)\n\nMultiple private/test RSA keys and example credentials were discovered embedded in the public curl source repository and associated documentation. These sensitive secrets were detected using automated tools (gitleaks) and manual review. Their presence could allow attackers to impersonate trusted curl infrastructure, decrypt traffic, or pivot into build or CI systems if reused, creating a severe supply chain risk. Such exposures also risk compliance violations (e.g., GDPR, PCI-DSS, HIPAA) and undermine trust in open source releases.\n\nThis report, including the verification steps and analysis, was prepared using an AI security assistant to ensure comprehensive and reproducible results.\nAffected version\n\nConfirmed in curl master branch as of August 2025. Also observed in prior tags (≥ 7.80.0) on Linux and macOS. Example version for testing:\n\ncurl 8.1.2 (x86_64-pc-linux-gnu) libcurl/8.1.2 OpenSSL/3.0.7 zlib/1.2.13 brotli/1.0.9 zstd/1.5.2 libidn2/2.3.4 nghttp2/1.51.0\nRelease-Date: 2023-06-12\nProtocols: dict file ftp ftps gopher gophers http https imap imaps mqtt pop3 pop3s rtmp rtsp smb smbs smtp smtps telnet tftp ws wss\nPlatform: Linux 5.15.0-83-generic x86_64\n\nSteps To Reproduce:\n\n    Clone the curl repository: git clone https://github.com/curl/curl.git\n    Run a secret scanning tool (e.g., gitleaks detect --source=.) to identify hard-coded secrets.\n    Alternatively, search for likely private key and credential strings with:\n        grep -r '-----BEGIN' ./tests/\n        grep -r 'password' ./docs/examples/\n    Review identified files to confirm the presence of full private keys or functional credential examples, such as tests/data/testprivkey.pem or docs/examples/http-auth-example.txt.\n    See .gitleaks/report.json for a consolidated findings report.\n\nSupporting Material/References:\n\n    Example evidence: tests/data/testprivkey.pem containing full private key\n    Example evidence: docs/examples/http-auth-example.txt with plaintext credentials\n    Full scan log: .gitleaks/report.json (generated via gitleaks)\n    curl/curl GitHub repository\n    Screenshot evidence as required (available on request)\n\nSeverity: Critical / CWE-321 (Use of Hard-coded Cryptographic Key)\n\n## Impact\n\n## Summary:The security impact of this vulnerability is severe and multi-faceted:\n\n    Impersonation & Privilege Escalation: Attackers can use leaked private keys to impersonate curl services, developers, or automated systems, gaining unauthorized access to protected infrastructure or code-signing processes.\n    Data Decryption: If any of the exposed keys have been (or are) used in production, an attacker could decrypt sensitive traffic or files, leading to data breaches.\n    Credential Stuffing & Service Hijack: Exposed example/test credentials may be reused in production or CI/CD, allowing attackers to pivot and escalate their access within targeted environments.\n    Supply Chain Attacks: Malicious actors might leverage sensitive secrets to inject or distribute malicious builds of curl/libcurl or to poison official releases.\n    Regulatory & Compliance Risks: This level of exposure may trigger mandatory breach reporting and legal or regulatory actions, especially for downstream consumers subject to compliance standards.\n\nIn summary: This issue enables attackers to compromise trust in the curl project, attack users and downstream integrations at scale, and potentially introduce persistent, hard-to-detect threats into the open source supply chain and the global software ecosystem.",
+  "report_id": "h1-3295650",
+  "reported_version": "8.1.2",
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3295650",
+  "tag": "curl-8_1_2",
+  "title": "Exposure of Hard-coded Private Keys and Credentials in curl Source Repository (CWE-321)"
+}

@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-2819666",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 2819666.",
+  "ground_truth": "fake",
+  "id": "h1-2819666",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2024-11-04T16:32:35.237Z",
+      "cve_ids": [],
+      "disclosed_at": "2024-11-06T07:00:49.533Z",
+      "id": 2819666,
+      "public": true,
+      "severity_rating": "high",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Use of Externally-Controlled Format String"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "aeb76611e07d604bf919652d035af25360782fdbdeb0a4dcb8091649f2541017"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Exploitable Format String Vulnerability in curl_mfprintf Function\n\nSummary:\n\nThe curl_mfprintf function in the curl_printf.h file contains a format string vulnerability that allows an attacker to inject arbitrary format specifiers. This can lead to unauthorized access to memory content, potential application crashes, or leakage of sensitive data.\n\nSteps To Reproduce:\n\n    Prepare the Test Code: Create a new file named test_printf.c with the following content:\n\n#include <stdio.h>\n#include \"curl_printf.h\"\n\nint main() {\n    char* user_input = \"%x %x %x %x\";  // Attempt to read memory content\n    curl_mfprintf(stdout, user_input); // Passing user-controlled input to the vulnerable function\n    return 0;\n}\n\nCompile the Code: Compile the test program with the following command:\n\nbash\n\ngcc -o test_printf test_printf.c -I./lib -I./include -L./lib/.libs -lcurl\n\nExecute the Code: Run the compiled program:\n\nbash\n\n    ./test_printf\n\n    Observe the Output: The output should display memory content, which confirms that the vulnerability is exploitable.\n\n## Impact\n\nThis vulnerability allows an attacker to use format string specifiers to access arbitrary memory locations. By exploiting this issue, an attacker could potentially:\n\n    Leak sensitive information from the process memory.\n    Cause a denial-of-service by crashing the application.\n    Further exploit the application depending on the context of the memory exposure.",
+  "report_id": "h1-2819666",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/2819666",
+  "tag": null,
+  "title": "Exploitable Format String Vulnerability in curl_mfprintf Function"
+}

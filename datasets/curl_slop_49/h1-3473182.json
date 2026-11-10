@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3473182",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3473182.",
+  "ground_truth": "fake",
+  "id": "h1-3473182",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2025-12-20T06:19:17.734Z",
+      "cve_ids": [],
+      "disclosed_at": "2025-12-21T21:34:01.610Z",
+      "id": 3473182,
+      "public": true,
+      "severity_rating": "low",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Business Logic Errors"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "56ae2464483b7a5293d9891c699ff1ab9bf511d04dc706fe8fdc20b789d77477"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "A logic error in detect_proxy caused truncation of environment variable names for long protocol schemes.\n\nIn lib/url.c, the detect_proxy function uses a fixed-size buffer, proxy_env[20], to construct proxy environment variable names (e.g., http_proxy). However, the curl URL parser (lib/urlapi.c) allows protocol schemes up to 40 characters (MAX_SCHEME_LEN). When a protocol scheme longer than 12 characters is used, the environment variable name is silently truncated to 19 characters by curl_msnprintf. This causes a business logic error where curl may read configuration from an unintended (truncated) environment variable, causing potentially unexpected proxy behavior in applications using custom schemes.\n\nGoogle Gemini AI was used as an analysis aid only; all findings, including the truncation behavior, were manually verified by reviewing the source code and testing a PoC.\n\nAffected Versions\n- curl 8.18.0-DEV (latest master branch)\n- Platform: Windows 10 x64 (platform-independent logic issue)\n\nSteps to Reproduce\n1. Inspect lib/url.c lines 2060–2067.\n2. Note that proxy_env is declared as char proxy_env[20];.\n3. Observe that conn->handler->scheme can be up to 40 characters (MAX_SCHEME_LEN).\n4. Call curl_msnprintf(proxy_env, sizeof(proxy_env), \"%s_proxy\", conn->handler->scheme); with a long scheme.\n5. Example: \"extremelylongprotocolname\" (25 characters) will be truncated to \"extremelylongsc\" instead of \"extremelylongprotocolname_proxy\".\n\nSupporting/Reference Materials\n- Source code snippet from lib/url.c (lines 2060–2067)\n- PoC code (poc_truncation.c) demonstrating truncation\n- Screenshot of PoC execution showing truncation\n- Screenshot of the vulnerable code in lib/url.c\n\n## Impact\n\nA business logic flaw allows proxy configuration manipulation or bypass through truncating environment variable names. This can lead to unexpected network behavior or bypass security policies that rely on protocol-specific proxy settings. An attacker with control over environment variables could set truncated variable names to redirect traffic through an unauthorized proxy.",
+  "report_id": "h1-3473182",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3473182",
+  "tag": null,
+  "title": "A logic error in detect_proxy caused truncation of environment variable names for long protocol schemes."
+}

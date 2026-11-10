@@ -1,0 +1,36 @@
+{
+  "case_id": "h1-3516186",
+  "commit": null,
+  "description": "Confirmed fake report from bagder/slop.md; HackerOne 3516186.",
+  "ground_truth": "fake",
+  "id": "h1-3516186",
+  "project": "curl",
+  "provenance": {
+    "commit_verified": null,
+    "fallback_reason": null,
+    "h1": {
+      "created_at": "2026-01-19T10:12:12.195Z",
+      "cve_ids": [],
+      "disclosed_at": "2026-01-19T11:50:14.091Z",
+      "id": 3516186,
+      "public": true,
+      "severity_rating": "critical",
+      "state": "Closed",
+      "substate": "not-applicable",
+      "weakness": "Integer Overflow"
+    },
+    "label_source": "https://gist.github.com/bagder/07f7581f6e3d78ef37dfbfc81fd1d1cd",
+    "origin": "hackerone",
+    "ref_source": "unresolved",
+    "ref_verified": null,
+    "report_sha256": "d4c76cf05b35a41719ad3d26fb007570af94f55c312b9c61f8a2cccb1005f833"
+  },
+  "repo_url": "https://github.com/curl/curl",
+  "report": "Cookie Max-Age Integer Overflow Vulnerability\n\n## Summary:\nThe cookie parsing code in `lib/cookie.c` contains an integer overflow vulnerability when processing the `Max-Age` attribute of HTTP cookies. The vulnerable code attempts to add the max-age value to the current timestamp without adequate overflow protection\n\nWhile the code includes an overflow check (`CURL_OFF_T_MAX - now < co->expires`), this check itself can experience integer overflow in edge cases where:\n1. The `max-age` value is extremely large (near `CURL_OFF_T_MAX`)\n2. The current time (`now`) is large enough that the subtraction `CURL_OFF_T_MAX - now` produces unexpected results\n3. The addition `co->expires += now` occurs without proper bounds checking\n\nAn attacker can exploit this vulnerability by:\n1. Controlling a web server or performing a man-in-the-middle attack\n2. Sending HTTP responses with `Set-Cookie` headers containing extremely large `Max-Age` values\n3. Causing curl/libcurl to incorrectly calculate cookie expiration times\n4. Resulting in cookies persisting beyond their intended lifetime or being immediately expired\n\n**Vulnerable Code Location:** `lib/cookie.c:607-611`\n\n```c\nelse if(CURL_OFF_T_MAX - now < co->expires)\n    /* would overflow */\n    co->expires = CURL_OFF_T_MAX;\nelse\n    co->expires += now;\n```\n\n## Affected version\n**Affected Versions:** curl 7.x - 8.x\n\n## Steps To Reproduce:\n\n### Vulnerable Code Flow\n\n1. **Cookie Header Parsing** (`parse_cookie_header()`)\n   - Parses `Max-Age` attribute from `Set-Cookie` header\n   - Calls `curlx_str_number()` to convert string to integer\n   - Handles overflow cases but with insufficient protection\n\n2. **Overflow Check** (Line 607)\n   ```c\n   if(CURL_OFF_T_MAX - now < co->expires)\n   ```\n   - This check can itself overflow when `now` is large\n   - Does not account for all edge cases\n\n3. **Time Addition** (Line 611)\n   ```c\n   co->expires += now;\n   ```\n   - Performs addition without verifying result\n   - Can wrap around on overflow\n\n### Exploitation Scenarios\n\n#### Scenario 1: Maximum Max-Age Value\n```http\nHTTP/1.1 200 OK\nSet-Cookie: session=abc123; Max-Age=9223372036854775807; Path=/\n```\n- Max-Age set to `CURL_OFF_T_MAX` (64-bit maximum)\n- When added to current time, may overflow\n- Cookie may expire immediately or persist indefinitely\n\n#### Scenario 2: Near-Overflow Value\n```http\nHTTP/1.1 200 OK\nSet-Cookie: tracking=xyz; Max-Age=9223372036854000000; Path=/\n```\n- Max-Age chosen to overflow when added to `time(NULL)`\n- Bypasses overflow check due to edge case\n- Results in incorrect expiration calculation\n\n#### Scenario 3: Cookie Jar Pollution\n```http\nHTTP/1.1 200 OK\nSet-Cookie: cookie1=val; Max-Age=9223372036854775807\nSet-Cookie: cookie2=val; Max-Age=9223372036854775806\nSet-Cookie: cookie3=val; Max-Age=9223372036854775805\n... (repeated many times)\n```\n- Multiple cookies with overflow values\n- Fills cookie jar with persistent cookies\n- Causes denial of service\n\n---\n\n### PoC Server\n\nA malicious HTTP server has been developed to demonstrate the vulnerability:\n\n**File:** `poc_cookie_overflow.py`\n\n```bash\n# Run the PoC server\npython3 poc_cookie_overflow.py\n\n# Server starts on http://localhost:8000\n# Provides 4 different exploit scenarios\n```\n\n### Testing Steps\n\n#### Test 1: Maximum Max-Age Value\n```bash\n# Test with vulnerable curl\ncurl -c cookies.txt http://localhost:8000/exploit1\n\n# Examine cookie file\ncat cookies.txt\n\n# Expected (vulnerable): Cookie with incorrect expiration\n# Expected (patched): Cookie capped at 400 days\n```\n\n#### Test 2: Near-Overflow Value\n```bash\ncurl -c cookies.txt http://localhost:8000/exploit2\ncat cookies.txt\n\n# Check if overflow occurred\npython3 -c \"\nimport time\nwith open('cookies.txt') as f:\n    for line in f:\n        if 'near_overflow' in line:\n            parts = line.split()\n            expiry = int(parts[4])\n            now = int(time.time())\n            print(f'Expiry: {expiry}')\n            print(f'Now: {now}')\n            print(f'Diff: {expiry - now} seconds')\n            print(f'Days: {(expiry - now) / 86400} days')\n\"\n```\n\n#### Test 3: Negative Max-Age\n```bash\ncurl -c cookies.txt http://localhost:8000/exploit3\ncat cookies.txt\n\n# Verify cookie was expired immediately\n```\n\n#### Test 4: Cookie Jar Pollution\n```bash\ncurl -c cookies.txt http://localhost:8000/exploit4\nwc -l cookies.txt\n\n# Should show 10+ cookies with overflow values\n```\n\n## Supporting Material/References:\n\n- [RFC 6265 - HTTP State Management Mechanism](https://datatracker.ietf.org/doc/html/rfc6265)\n- [RFC 6265bis - Cookies (Draft)](https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis)\n- [CWE-190: Integer Overflow or Wraparound](https://cwe.mitre.org/data/definitions/190.html)\n- [curl Security Policy](https://curl.se/docs/security.html)\n\n\n  * [attachment / reference]\n\nAttached PoC, patch files\n\n## Impact\n\n## Summary:\n   - Attacker-set session cookies persist beyond intended lifetime\n   - Users remain logged in indefinitely\n   - Session tokens cannot be properly expired\n   - Tracking cookies persist longer than allowed\n   - User privacy preferences bypassed\n   - GDPR/privacy regulation violations\n   - Authentication cookies may expire immediately\n   - Or persist indefinitely, preventing logout\n   - Access control mechanisms compromised\n   - Malformed cookies fill up cookie storage\n   - Legitimate cookies may be evicted\n   - Application functionality degraded",
+  "report_id": "h1-3516186",
+  "reported_version": null,
+  "source": "hackerone",
+  "source_url": "https://hackerone.com/reports/3516186",
+  "tag": null,
+  "title": "Cookie Max-Age Integer Overflow Vulnerability"
+}
