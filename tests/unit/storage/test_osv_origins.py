@@ -217,8 +217,14 @@ def test_build_real_record_pins_the_last_affected_commit() -> None:
     assert record["commit"] == "a" * 40
     assert record["reported_version"] == "8.22.0"
     assert record["source"] == "hackerone"
+    assert record["title"] == "curl_mime_free stack overflow by recursion"
     assert isinstance(record["report"], str)
-    assert record["report"].startswith("CVE-2026-92391:")
+    assert record["report"].startswith("curl_mime_free stack overflow by recursion")
+    assert "CVE-2026-92391" not in record["report"]
+    assert (
+        record["provenance"]["h1"]["original_title"]
+        == "CVE-2026-92391: curl_mime_free stack overflow by recursion"
+    )
     assert record["provenance"]["ref_source"] == "last_affected"
     assert record["provenance"]["ref_verified"] is True
     assert record["provenance"]["osv"]["fix_commits"] == [FIX_SHA]
@@ -243,6 +249,9 @@ def test_build_real_record_marks_advisory_fallbacks() -> None:
     assert record["source"] == "osv_advisory"
     assert record["tag"] is None
     assert record["commit"] is None
+    assert record["title"] == "curl_mime_free stack overflow by recursion"
+    assert "Last affected:" not in record["report"]
+    assert "Fixed in:" not in record["report"]
     assert record["provenance"]["fallback_reason"] == "no_original_report_link"
     assert record["provenance"]["ref_verified"] is None
     assert "h1" not in record["provenance"]

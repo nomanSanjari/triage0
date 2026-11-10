@@ -18,6 +18,7 @@ from triage0.storage.indexers.h1_reports import (
     fetch_public_report,
     parse_slop_list,
     report_text,
+    strip_cve_title_prefix,
     write_json_record,
 )
 
@@ -384,6 +385,15 @@ def test_report_text_without_a_title_is_just_the_body() -> None:
 def test_report_text_rejects_an_empty_body() -> None:
     with pytest.raises(H1Error, match="body is empty"):
         report_text("A bug", "   ")
+
+
+def test_strip_cve_title_prefix_only_removes_a_leading_prefix() -> None:
+    assert strip_cve_title_prefix("CVE-2026-92391: A bug") == "A bug"
+    assert (
+        strip_cve_title_prefix("A bug about CVE-2026-92391")
+        == "A bug about CVE-2026-92391"
+    )
+    assert strip_cve_title_prefix("CVE-2026-92391") == "CVE-2026-92391"
 
 
 def test_build_fake_record_is_flat_and_has_no_private_fields(

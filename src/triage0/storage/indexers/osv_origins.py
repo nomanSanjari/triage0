@@ -23,6 +23,7 @@ from triage0.storage.indexers.h1_reports import (
     fetch_public_report,
     report_sha256,
     report_text,
+    strip_cve_title_prefix,
 )
 from triage0.storage.indexers.osv_advisories import (
     OsvError,
@@ -183,7 +184,12 @@ def build_real_record(
     """
 
     cve = cve_id(osv)
-    text = report_text(origin.title, origin.body)
+    original_title = origin.title
+    title = strip_cve_title_prefix(original_title)
+    # Strip the prefix from the assembled text too: report_text() may prepend
+    # the original title, and a body that repeats the title must not reintroduce
+    # the CVE id.
+    text = strip_cve_title_prefix(report_text(original_title, origin.body))
     # A tag without a verification result is still unverified; never claim it.
     ref_verified = commit_verified if ref.commit is not None else None
 
@@ -198,9 +204,15 @@ def build_real_record(
         "osv": osv_provenance(osv),
     }
     if origin.h1 is not None:
-        provenance["h1"] = dict(origin.h1)
+        h1 = dict(origin.h1)
+        if title != original_title:
+            h1["original_title"] = original_title
+        provenance["h1"] = h1
     if origin.github is not None:
-        provenance["github"] = dict(origin.github)
+        github = dict(origin.github)
+        if title != original_title:
+            github["original_title"] = original_title
+        provenance["github"] = github
 
     return {
         "id": cve,
@@ -214,7 +226,7 @@ def build_real_record(
         "report_id": cve,
         "source": origin.source,
         "project": "curl",
-        "title": origin.title,
+        "title": title,
         "reported_version": ref.reported_version,
         "source_url": origin.source_url,
         "provenance": provenance,

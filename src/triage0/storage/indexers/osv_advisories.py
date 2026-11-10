@@ -68,12 +68,19 @@ class OsvEvent(BaseModel):
 
     introduced: str | None = None
     fixed: str | None = None
+    # OSV also allows an event to name the last affected version directly.
+    # The field is declared so the provenance copy has a stable shape even
+    # when curl omits it.
+    last_affected: str | None = None
 
 
 class OsvRange(BaseModel):
     model_config = ConfigDict(frozen=True, extra="allow")
 
     type: str
+    # Only GIT ranges publish a repo URL. Declaring it keeps the provenance
+    # shape stable across SEMVER and GIT ranges.
+    repo: str | None = None
     events: list[OsvEvent] = Field(default_factory=list)
 
 
@@ -216,33 +223,16 @@ def osv_git_commits(osv: OsvVulnerability) -> list[str]:
 
 
 def advisory_report_text(osv: OsvVulnerability) -> str:
-    """Build report text from official advisory fields only.
+    """Build report text from the advisory summary and details only.
 
-    Used when no original report is available. Every line comes from the OSV
+    Used when no original report is available. Range, version, CWE and URL
+    metadata stay in ``provenance.osv``: repeating them in the model input
+    makes the record look like an advisory instead of a report, and the harness
+    already checks out the pinned commit. Every line here comes from the OSV
     record; nothing is inferred.
     """
 
-    lines = [osv.summary.strip(), ""]
-    ranges = semver_ranges(osv)
-    if ranges:
-        lines.append(
-            "Version ranges: "
-            + "; ".join(
-                f"introduced {introduced or 'unknown'}, fixed in {fixed or 'unfixed'}"
-                for introduced, fixed in ranges
-            )
-        )
-    lines.append(f"Last affected: {osv.database_specific.last_affected}")
-    fixed = fixed_versions(osv)
-    if fixed:
-        lines.append("Fixed in: " + ", ".join(fixed))
-    cwe = osv.database_specific.cwe
-    if cwe is not None:
-        label = " ".join(part for part in (cwe.id, cwe.desc) if part)
-        if label:
-            lines.append(f"CWE: {label}")
-    if osv.database_specific.www:
-        lines.append(f"Advisory: {osv.database_specific.www}")
+    lines = [osv.summary.strip()]
     details = osv.details.strip()
     if details:
         lines.extend(["", details])

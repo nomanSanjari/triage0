@@ -50,6 +50,7 @@ __all__ = [
     "record_id",
     "report_sha256",
     "report_text",
+    "strip_cve_title_prefix",
     "write_json_record",
 ]
 
@@ -77,6 +78,10 @@ _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _SLOP_LINK = re.compile(r"https://hackerone\.com/reports/(\d+)")
 # Record ids become file names, so they must never contain a path separator.
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+# HackerOne titles often start with the CVE id. The id is answer-key data:
+# leaving it in the model input lets a "contains CVE-" rule score 98% without
+# checking any code. The original title is kept in provenance.
+_CVE_TITLE_PREFIX = re.compile(r"^CVE-\d{4}-\d+:\s*")
 
 
 class H1Error(RuntimeError):
@@ -384,6 +389,16 @@ def parse_slop_list(gist_text: str) -> list[int]:
 
 def record_id(report_id: int) -> str:
     return f"h1-{report_id}"
+
+
+def strip_cve_title_prefix(text: str) -> str:
+    """Drop a leading ``CVE-YYYY-NNNN:`` from a title or report string.
+
+    The CVE id is answer-key metadata, not part of the report the model should
+    evaluate. Only the prefix is removed, so the rest of the text is unchanged.
+    """
+
+    return _CVE_TITLE_PREFIX.sub("", text, count=1)
 
 
 def report_text(title: str, body: str) -> str:

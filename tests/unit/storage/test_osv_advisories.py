@@ -177,13 +177,16 @@ def test_fix_commits_are_collected_from_git_ranges() -> None:
 # --- advisory text ---------------------------------------------------------
 
 
-def test_advisory_report_text_is_built_only_from_advisory_fields() -> None:
+def test_advisory_report_text_has_no_generated_header() -> None:
     text = advisory_report_text(osv())
 
     assert text.startswith("curl_mime_free stack overflow by recursion")
-    assert "introduced 7.56.0, fixed in 8.14.3" in text
-    assert "Last affected: 8.22.0" in text
-    assert "Fixed in: 8.14.3, 8.16.2, 8.20.2, 8.23.0" in text
-    assert "CWE: CWE-674 Uncontrolled Recursion" in text
-    assert "https://curl.se/docs/CVE-2026-92391.html" in text
     assert text.endswith("crashes on cleanup.")
+    for header in (
+        "Version ranges:",
+        "Last affected:",
+        "Fixed in:",
+        "CWE:",
+        "Advisory:",
+    ):
+        assert header not in text
