@@ -33,7 +33,7 @@ The directory a record lives in is authoritative. Each record also carries
 | `repo_url` | URL | `https://github.com/curl/curl` |
 | `tag` | string or null | Release tag the commit came from |
 | `commit` | string or null | Immutable commit the harness checks out |
-| `report` | string | Evaluation input: title, blank line, full public report body |
+| `report` | string | Evaluation input: title (or advisory summary), blank line, body or advisory details |
 | `report_id` | string | Source-specific report id |
 | `source` | string | `hackerone`, `github_issue`, or `osv_advisory` |
 | `project` | string | Always `curl` |
@@ -60,14 +60,14 @@ confirm the text was not edited after generation.
   "repo_url": "https://github.com/curl/curl",
   "tag": "curl-8_22_0",
   "commit": "01346829096c61b372692f6dc43ffa778c6caccd",
-  "report": "CVE-2026-92391: curl_mime_free stack overflow by recursion\n\n<full public body>",
+  "report": "curl_mime_free stack overflow by recursion\n\n<full public body>",
   "report_id": "CVE-2026-92391",
   "source": "hackerone",
   "project": "curl",
-  "title": "CVE-2026-92391: curl_mime_free stack overflow by recursion",
+  "title": "curl_mime_free stack overflow by recursion",
   "reported_version": "8.22.0",
   "source_url": "https://hackerone.com/reports/4024222",
-  "provenance": { "...": "..." }
+  "provenance": { "h1": { "original_title": "CVE-2026-92391: curl_mime_free stack overflow by recursion" } }
 }
 ```
 
@@ -135,7 +135,10 @@ used only when the text names exactly one version and exactly one release tag
 matches it; 13 of the 49 records resolved this way. Otherwise `tag` and
 `commit` are both `null` (36 records) and the harness uses its default ref.
 This is deliberately conservative: a wrong tag could turn a true claim into a
-false `CONTRADICTED`.
+false `CONTRADICTED`. The `find_versions` fix in #42 changed which records
+resolve without changing the totals: `h1-3231321` and `h1-3346118` now resolve
+from `libcurl` version strings, while `h1-3395218` and `h1-3395227` no longer
+resolve because their only version came from a CVSS score.
 
 ## Where the report text comes from
 
@@ -143,7 +146,12 @@ false `CONTRADICTED`.
 |---|---:|---|
 | `hackerone` | 148 real + 49 fake | Public HackerOne report title and `vulnerability_information` |
 | `github_issue` | 1 real | Public GitHub issue title and body (`curl/curl#2093`, CVE-2017-8818) |
-| `osv_advisory` | 90 real | Generated from the OSV summary, details, ranges, fixed versions, CWE, and advisory URL |
+| `osv_advisory` | 90 real | OSV summary and details; ranges, fixed versions, CWE and the advisory URL stay in `provenance.osv` |
+
+HackerOne titles that begin with `CVE-YYYY-NNNN:` have that prefix removed
+from `title` and `report`; the original title is kept in
+`provenance.h1.original_title`. The CVE id is answer-key data, so it must not
+be part of the model input.
 
 Advisory-derived records set `fallback_reason`:
 
@@ -155,13 +163,29 @@ Advisory-derived records set `fallback_reason`:
 None of these were needed for the current snapshot, but the generator records
 them honestly if the sources change.
 
-27 advisory-derived records have no GIT range in OSV, so their
+## Evaluation split
+
+Only `report` is model input. `id`, `description`, `source_url`, and
+`provenance` are answer-key or audit fields; a loader must not pass them to
+the model. The baseline currently reads only `report` and uses `metadata` just
+to find an explicit Git ref.
+
+`source == "osv_advisory"` marks the 90 advisory-derived records. Exclude them
+from the real-vs-fake score: they are curl's post-fix write-ups, not original
+reports. Use them only for the zero-false-flag check, where their claims are
+still true and must never be `CONTRADICTED`.
+
+25 advisory-derived records have no GIT range in OSV, so their
 `provenance.osv.fix_commits` and `provenance.osv.introduced_commits` are `[]`.
 No commit hash is invented.
 
 ## Snapshot
 
-Retrieved 2026-10-31.
+Retrieved 2026-11-10. The two file hashes below are unchanged from the
+2026-10-31 snapshot; HackerOne report metadata is fetched live and is not
+hash-pinned. HackerOne now returns `weakness` as an object instead of a
+stringified object, so `provenance.h1.weakness` stores the CWE name (for
+example, `Incorrect Calculation of Buffer Size`).
 
 | Source | SHA-256 | Size |
 |---|---|---:|
@@ -243,8 +267,9 @@ in the test suite or the runtime reads the network.
   written together for humans and for a future loader.
 - **`case_id` is not an id source in the loader.** `id` is included for that
   reason.
-- **Advisory-derived records are not original reports.** Evaluation results
-  should be stratified by `source`.
+- **Advisory-derived records are not original reports.** Exclude
+  `source == "osv_advisory"` from the real-vs-fake score and use those records
+  only for the zero-false-flag check. See “Evaluation split”.
 - **The HackerOne `.json` endpoint is not an official API.** It is a public
   page endpoint and may change; regeneration fails loudly rather than writing
   partial records.
