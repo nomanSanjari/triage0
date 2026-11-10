@@ -18,9 +18,6 @@ import pytest
 from pydantic import BaseModel
 
 from triage0.llm.client import (
-    ENV_API_KEY,
-    ENV_BASE_URL,
-    ENV_MODEL,
     HTTPLLMClient,
     LLMAPIError,
     LLMError,
@@ -331,9 +328,9 @@ def test_from_env_reads_the_configuration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TRIAGE0_ENV_FILE", str(tmp_path / "no-such-file"))
-    monkeypatch.setenv(ENV_BASE_URL, "https://llm.example.test/v1")
-    monkeypatch.setenv(ENV_MODEL, "some-model")
-    monkeypatch.setenv(ENV_API_KEY, KEY)
+    monkeypatch.setenv("TRIAGE0_LLM_BASE_URL", "https://llm.example.test/v1")
+    monkeypatch.setenv("TRIAGE0_LLM_MODEL", "some-model")
+    monkeypatch.setenv("TRIAGE0_LLM_API_KEY", KEY)
 
     client = HTTPLLMClient.from_env()
 
@@ -344,17 +341,19 @@ def test_from_env_reads_the_configuration(
     )
 
 
-def test_from_env_names_what_is_missing_without_defaults(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("value", [None, ""], ids=["unset", "blank"])
+def test_from_env_names_a_missing_setting_without_defaults(
+    value: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TRIAGE0_ENV_FILE", str(tmp_path / "no-such-file"))
-    monkeypatch.delenv(ENV_BASE_URL, raising=False)
-    monkeypatch.delenv(ENV_MODEL, raising=False)
-    monkeypatch.setenv(ENV_API_KEY, KEY)
+    if value is None:
+        monkeypatch.delenv("TRIAGE0_LLM_BASE_URL", raising=False)
+    else:
+        monkeypatch.setenv("TRIAGE0_LLM_BASE_URL", value)
+    monkeypatch.setenv("TRIAGE0_LLM_MODEL", "some-model")
+    monkeypatch.setenv("TRIAGE0_LLM_API_KEY", KEY)
 
-    with pytest.raises(LLMError) as caught:
+    with pytest.raises(LLMError, match="missing configuration: TRIAGE0_LLM_BASE_URL") as caught:
         HTTPLLMClient.from_env()
 
-    assert ENV_BASE_URL in str(caught.value)
-    assert ENV_MODEL in str(caught.value)
     assert KEY not in str(caught.value)

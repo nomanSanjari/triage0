@@ -35,10 +35,6 @@ __all__ = [
 
 T = TypeVar("T", bound=BaseModel)
 
-ENV_API_KEY = "TRIAGE0_LLM_API_KEY"
-ENV_MODEL = "TRIAGE0_LLM_MODEL"
-ENV_BASE_URL = "TRIAGE0_LLM_BASE_URL"
-
 RETRYABLE_HTTP_CODES = frozenset({429, 500, 502, 503, 504})
 # An allowlist, so a failure that can't fix itself (an untrusted certificate, a
 # bad URL) fails at once instead of being retried.
@@ -110,6 +106,14 @@ class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _setting(name: str) -> str:
+    # A blank value counts as missing: copying .env.example leaves "" behind.
+    value = os.getenv(name)
+    if not value:
+        raise LLMError(f"missing configuration: {name}")
+    return value
+
+
 def _answer_text(raw: bytes) -> str:
     """Pull the model's answer out of the provider's response envelope."""
 
@@ -144,11 +148,11 @@ class HTTPLLMClient(LLMClient):
         """
 
         load_env()
-        names = (ENV_BASE_URL, ENV_MODEL, ENV_API_KEY)
-        missing = [name for name in names if not os.getenv(name)]
-        if missing:
-            raise LLMError(f"missing configuration: {', '.join(missing)}")
-        return cls(os.environ[ENV_BASE_URL], os.environ[ENV_MODEL], os.environ[ENV_API_KEY])
+        return cls(
+            base_url=_setting("TRIAGE0_LLM_BASE_URL"),
+            model=_setting("TRIAGE0_LLM_MODEL"),
+            api_key=_setting("TRIAGE0_LLM_API_KEY"),
+        )
 
     def _send(self, system: str, user: str) -> str:
         body = json.dumps(
