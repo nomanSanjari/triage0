@@ -1,0 +1,6 @@
+Your task: the user message is the report text, and nothing else. Extract
+every checkable claim in it. If it has none, return an empty list.
+
+requested_version: copy the version text the report gives for the affected
+code, exactly as written (for example "curl 8.13.0"), or null if the report
+names no version. Do not convert it into a tag or a commit.
