@@ -18,6 +18,9 @@ dev = ["pytest>=8", "mypy>=1.10"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"triage0.extraction.prompts" = ["*.txt"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

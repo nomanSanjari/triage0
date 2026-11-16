@@ -6,6 +6,7 @@ its output is as untrusted as the report itself.
 
 from __future__ import annotations
 
+from importlib.resources import files
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -22,6 +23,10 @@ from triage0.core.models import (
 )
 from triage0.llm.client import LLMResponseError
 
+# Read at import, so a missing prompt file fails at startup, not mid-run.
+_SYSTEM_PROMPT = (
+    files("triage0.extraction.prompts") / "decomposer.txt"
+).read_text(encoding="utf-8")
 # --- Draft forms: what the LLM is allowed to fill in --------------------------
 #
 # Each draft mirrors a core claim minus two fields:
