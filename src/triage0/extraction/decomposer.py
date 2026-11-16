@@ -6,8 +6,10 @@ its output is as untrusted as the report itself.
 
 from __future__ import annotations
 
+from collections import Counter
 from importlib.resources import files
 from typing import Annotated, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -17,11 +19,15 @@ from triage0.core.models import (
     BuildSystem,
     CallPathClaim,
     FileLineClaim,
+    NormalizedReport,
     PoCClaim,
     SymbolClaim,
     SymbolKind,
+    VerificationPlan,
 )
-from triage0.llm.client import LLMResponseError
+from triage0.llm.client import LLMClient, LLMResponseError
+
+__all__ = ["decompose"]
 
 # Read at import, so a missing prompt file fails at startup, not mid-run.
 _SYSTEM_PROMPT = (
@@ -137,3 +143,94 @@ def _to_claim(draft: _AnyDraft, claim_id: str) -> AnyClaim:
             f"model output had an invalid {draft.kind} claim: "
             f"{exc.error_count()} error(s)"
         ) from None
+
+
+# --- Checks: is each claim really in the report? -----------------------------
+
+_EXCERPT_MISSING = "excerpt not in report"
+_NAME_MISSING = "name not in report"
+
+
+def _key_names(claim: AnyClaim) -> tuple[str, ...]:
+    """The names a checker will search for, so they must come from the report.
+
+    PoC steps are free text with no single name to look up; the excerpt check
+    is their only guard.
+    """
+
+    match claim:
+        case SymbolClaim():
+            return (claim.symbol,)
+        case FileLineClaim():
+            return (claim.path,)
+        case CallPathClaim():
+            return (claim.entrypoint, claim.target)
+        case BuildFlagClaim():
+            return (claim.flag,)
+        case PoCClaim():
+            return ()
+
+
+def _drop_reason(claim: AnyClaim, body: str) -> str | None:
+    """Why ``claim`` can't be shown to come from ``body``, or None if it can."""
+
+    # Checked first on its own: "" is a substring of every string.
+    if not claim.source_excerpt or claim.source_excerpt not in body:
+        return _EXCERPT_MISSING
+    # The excerpt alone isn't enough: a real quote can sit next to an invented
+    # name, and the checkers would then look for something never reported.
+    if any(name not in body for name in _key_names(claim)):
+        return _NAME_MISSING
+    return None
+
+
+def _drop_note(dropped: Counter[str], total: int, version_dropped: bool) -> str | None:
+    parts = []
+    if dropped:
+        reasons = ", ".join(f"{n} {reason}" for reason, n in sorted(dropped.items()))
+        parts.append(f"dropped {sum(dropped.values())} of {total} claim(s): {reasons}")
+    if version_dropped:
+        parts.append("dropped requested_version: not in report")
+    return "; ".join(parts) or None
+
+
+# --- Public entry point -------------------------------------------------------
+
+
+def decompose(
+    report: NormalizedReport, repo_url: str, client: LLMClient
+) -> VerificationPlan:
+    """Extract the report's checkable claims into a plan for the checkers.
+
+    Only the body is sent, as the whole user message: with no markers around
+    it, there is no end-of-report marker a report could fake. Claims and the
+    version text are kept only if they can be found in the body. Dropped ones
+    are counted in ``notes`` (only counts, never LLM text). Malformed LLM output
+    raises ``LLMResponseError``: an empty plan always means "nothing to check".
+    """
+
+    answer = client.complete_structured(_SYSTEM_PROMPT, report.body, _Extraction)
+
+    claims: list[AnyClaim] = []
+    dropped: Counter[str] = Counter()
+    for draft in answer.claims:
+        claim = _to_claim(draft, claim_id=f"c{len(claims) + 1}")
+        reason = _drop_reason(claim, report.body)
+        if reason is None:
+            claims.append(claim)
+        else:
+            dropped[reason] += 1
+
+    raw_version = (answer.requested_version or "").strip()
+    version = raw_version if raw_version and raw_version in report.body else None
+    version_dropped = bool(raw_version) and version is None
+
+    return VerificationPlan(
+        plan_id=uuid4().hex,
+        report_id=report.report_id,
+        repo_url=repo_url,
+        project=report.project,
+        requested_version=version,
+        claims=tuple(claims),
+        notes=_drop_note(dropped, len(answer.claims), version_dropped),
+    )
