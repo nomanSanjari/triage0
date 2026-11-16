@@ -6,6 +6,7 @@ its output is as untrusted as the report itself.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from importlib.resources import files
 from typing import Annotated, Literal
@@ -27,12 +28,20 @@ from triage0.core.models import (
 )
 from triage0.llm.client import LLMClient, LLMResponseError
 
-__all__ = ["decompose"]
+__all__ = ["decompose", "refine"]
 
-# Read at import, so a missing prompt file fails at startup, not mid-run.
-_SYSTEM_PROMPT = (
-    files("triage0.extraction.prompts") / "decomposer.txt"
-).read_text(encoding="utf-8")
+
+def _read_prompt(name: str) -> str:
+    return (files("triage0.extraction.prompts") / name).read_text(encoding="utf-8")
+
+
+# Read at import, so a missing prompt file fails at startup, not mid-run. Both
+# tasks share one set of claim rules, so the two can't drift apart.
+_CLAIM_RULES = _read_prompt("claim_rules.txt")
+_DECOMPOSE_PROMPT = f"{_CLAIM_RULES}\n{_read_prompt('decompose.txt')}"
+_REFINE_PROMPT = f"{_CLAIM_RULES}\n{_read_prompt('refine.txt')}"
+
+
 # --- Draft forms: what the LLM is allowed to fill in --------------------------
 #
 # Each draft mirrors a core claim minus two fields:
@@ -110,6 +119,12 @@ class _Extraction(_Form):
 
     requested_version: str | None
     claims: tuple[_AnyDraft, ...]
+
+
+class _Refinement(_Form):
+    """The answer to a send-back: the claim again, or null if the report lacks it."""
+
+    claim: _AnyDraft | None
 
 
 _CLAIM_CLASSES: dict[
@@ -209,7 +224,7 @@ def decompose(
     raises ``LLMResponseError``: an empty plan always means "nothing to check".
     """
 
-    answer = client.complete_structured(_SYSTEM_PROMPT, report.body, _Extraction)
+    answer = client.complete_structured(_DECOMPOSE_PROMPT, report.body, _Extraction)
 
     claims: list[AnyClaim] = []
     dropped: Counter[str] = Counter()
@@ -234,3 +249,33 @@ def decompose(
         claims=tuple(claims),
         notes=_drop_note(dropped, len(answer.claims), version_dropped),
     )
+
+
+def refine(
+    report: NormalizedReport, claim: AnyClaim, reason: str, client: LLMClient
+) -> AnyClaim | None:
+    """Ask again for one claim the skeptic sent back, with its reason.
+
+    Returns the new claim under the same ``claim_id``, or None if the report
+    doesn't state the missing detail or the new claim fails the same checks
+    as in ``decompose`` (so a send-back can't sneak a claim past them).
+
+    The claim and reason were written by an LLM, so they are as untrusted as
+    the report: all three travel as one JSON user message, never in the
+    instructions. JSON escapes quotes, so none of them can fake the end of
+    its field.
+    """
+
+    request = json.dumps(
+        {
+            "report": report.body,
+            "claim": claim.model_dump(mode="json", exclude={"claim_id", "result"}),
+            "reviewer_note": reason,
+        },
+        ensure_ascii=False,
+    )
+    answer = client.complete_structured(_REFINE_PROMPT, request, _Refinement)
+    if answer.claim is None:
+        return None
+    revised = _to_claim(answer.claim, claim_id=claim.claim_id)
+    return revised if _drop_reason(revised, report.body) is None else None
