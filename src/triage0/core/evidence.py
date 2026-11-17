@@ -33,6 +33,7 @@ __all__ = [
     "DeterministicProof",
     "EvidenceResult",
     "EvidenceStatus",
+    "MissingEvidence",
 ]
 
 # A command is a sequence of arguments, never a shell string.  ``str`` is
@@ -50,6 +51,19 @@ class EvidenceStatus(StrEnum):
     CONFIRMED = "CONFIRMED"
     CONTRADICTED = "CONTRADICTED"
     CANT_CHECK = "CANT_CHECK"
+
+
+class MissingEvidence(StrEnum):
+    """Why a ``CANT_CHECK`` checker found nothing: absent at this version.
+
+    This is the hand-off from the checkers to the code investigator, which
+    searches git history to tell a renamed or moved item from one that never
+    existed.  Use it only for things git history could explain.  An analysis
+    limit (e.g. no static call path found) is not "missing": history can't
+    explain it, so the investigator would search for nothing.
+    """
+
+    SYMBOL_ABSENT = "SYMBOL_ABSENT"
 
 
 class _CommandRecord(EvidenceModel):
@@ -207,11 +221,25 @@ class EvidenceResult(EvidenceModel):
     :class:`DeterministicProof` that is conclusive: a proof with ``timed_out``
     or ``truncated`` set cannot support a terminal verdict.  ``CANT_CHECK`` may
     carry a proof for diagnostics but is the only status permitted without one.
+    ``missing`` marks a ``CANT_CHECK`` whose checker found nothing at this
+    version (see :class:`MissingEvidence`).
     """
 
     status: EvidenceStatus
     proof: DeterministicProof | None = None
     summary: str | None = None
+    missing: MissingEvidence | None = None
+
+    @model_validator(mode="after")
+    def _missing_only_on_cant_check(self) -> "EvidenceResult":
+        # "Not found" means undecided until history is checked, so it can
+        # never sit on a final verdict.
+        if self.missing is not None and self.status is not EvidenceStatus.CANT_CHECK:
+            raise ValueError(
+                f"missing={self.missing.value} is only valid on CANT_CHECK, "
+                f"not {self.status.value}"
+            )
+        return self
 
     @model_validator(mode="after")
     def _terminal_verdicts_require_proof(self) -> "EvidenceResult":

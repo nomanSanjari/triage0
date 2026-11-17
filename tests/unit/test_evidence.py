@@ -13,6 +13,7 @@ from triage0.core.evidence import (
     DeterministicProof,
     EvidenceResult,
     EvidenceStatus,
+    MissingEvidence,
 )
 
 TREE_HASH = "a" * 40
@@ -55,6 +56,26 @@ def test_cant_check_without_proof_is_allowed() -> None:
     assert result.status is EvidenceStatus.CANT_CHECK
     assert result.proof is None
     assert result.is_terminal is False
+
+
+def test_cant_check_can_say_the_symbol_is_absent() -> None:
+    result = EvidenceResult(
+        status=EvidenceStatus.CANT_CHECK,
+        missing=MissingEvidence.SYMBOL_ABSENT,
+        summary="curl_foo not found at curl-8_23_0",
+    )
+    assert result.missing is MissingEvidence.SYMBOL_ABSENT
+
+
+def test_missing_is_rejected_on_a_final_verdict() -> None:
+    # "Not found" must never become a contradiction by itself: only the code
+    # investigator may decide that, after checking history.
+    with pytest.raises(ValidationError, match="only valid on CANT_CHECK"):
+        EvidenceResult(
+            status=EvidenceStatus.CONTRADICTED,
+            proof=make_proof(),
+            missing=MissingEvidence.SYMBOL_ABSENT,
+        )
 
 
 @pytest.mark.parametrize(
