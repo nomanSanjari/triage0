@@ -8,8 +8,6 @@ labels weren't written from memory. Needs internet: TRIAGE0_NETWORK_TESTS=1
 from __future__ import annotations
 
 import os
-import shutil
-from collections.abc import Iterator
 from pathlib import Path
 from subprocess import CalledProcessError
 
@@ -29,17 +27,6 @@ pytestmark = pytest.mark.skipif(
 HISTORY_SEARCH_TIMEOUT_SECONDS = 300
 
 CASES_WITH_A_VERSION = [case for case in load_all() if case.tag is not None]
-
-
-@pytest.fixture(scope="module")
-def repos(tmp_path_factory: pytest.TempPathFactory) -> Iterator[RepoCache]:
-    # One clone for all cases, deleted afterwards: pytest would otherwise keep
-    # the last few runs' 140 MB clones around.
-    cache_dir = tmp_path_factory.mktemp("repo-cache")
-    try:
-        yield RepoCache(cache_dir)
-    finally:
-        shutil.rmtree(cache_dir)
 
 
 def _line_problem(repo: Path, case_commit: str, ev: LineEvidence) -> str | None:

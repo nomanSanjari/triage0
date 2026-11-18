@@ -30,6 +30,7 @@ __all__ = [
     "blame_lines",
     "last_change",
     "line_history",
+    "parents",
     "path_in_tree",
     "symbol_in_tree",
     "tree_hash",
@@ -103,8 +104,14 @@ def last_change(repo: Path, symbol: str, commit: str | None = None) -> str | Non
 
     ``commit`` limits the search to history up to it; None searches every
     ref. Searching more can only find more, so None can only make a "never
-    existed" conclusion rarer, never wrong. This is ``git log -S``: a plain
-    substring match, so ``Curl_dyn_add`` also matches ``Curl_dyn_addf``.
+    existed" conclusion rarer, never wrong.
+
+    This is ``git log -S``, a plain *text* match, because the whole-word
+    (regex) version is far too slow: over 120 s on curl against about 8 s. So
+    ``curlx_dyn_ad`` matches ``curlx_dyn_add`` and a hit doesn't prove the
+    name was ever a whole word. None does prove it never appeared at all; a
+    caller that needs the commit where a word disappeared checks the hit with
+    ``symbol_in_tree`` on the commit and its ``parents``.
     """
 
     rev = "--all" if commit is None else _check_commit(commit)
@@ -138,6 +145,16 @@ def tree_hash(repo: Path, commit: str) -> str:
     return run_git(
         ["rev-parse", "--verify", f"{_check_commit(commit)}^{{tree}}"], repo=repo
     ).stdout.strip()
+
+
+def parents(repo: Path, commit: str) -> tuple[str, ...]:
+    """The parent commits of ``commit`` (none for the first commit)."""
+
+    # One line: the commit, then its parents.
+    line = run_git(
+        ["rev-list", "--parents", "--max-count=1", _check_commit(commit)], repo=repo
+    ).stdout.split()
+    return tuple(line[1:])
 
 
 def line_history(repo: Path, commit: str, path: str, start: int, end: int) -> list[str]:

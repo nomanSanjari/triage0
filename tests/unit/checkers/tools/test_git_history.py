@@ -12,6 +12,7 @@ from triage0.checkers.tools.git_history import (
     blame_lines,
     last_change,
     line_history,
+    parents,
     path_in_tree,
     symbol_in_tree,
     tree_hash,
@@ -77,6 +78,11 @@ def test_tree_hash_is_the_commits_tree(repo: Repo) -> None:
     first_line = run_git(["cat-file", "-p", repo.added], repo=repo.path).stdout.splitlines()[0]
     assert first_line == f"tree {tree_hash(repo.path, repo.added)}"
     assert tree_hash(repo.path, repo.added) != tree_hash(repo.path, repo.renamed)
+
+
+def test_parents_names_the_commit_before(repo: Repo) -> None:
+    assert parents(repo.path, repo.renamed) == (repo.added,)
+    assert parents(repo.path, repo.added) == ()
 
 
 def test_line_history_lists_commits_that_changed_the_lines(repo: Repo) -> None:
