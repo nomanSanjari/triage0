@@ -29,6 +29,7 @@ __all__ = [
     "MAX_RANGE_LINES",
     "blame_lines",
     "last_change",
+    "last_change_argv",
     "line_history",
     "parents",
     "path_in_tree",
@@ -99,6 +100,17 @@ def symbol_in_tree(repo: Path, commit: str, symbol: str) -> bool:
     return True
 
 
+def last_change_argv(symbol: str, commit: str | None = None) -> tuple[str, ...]:
+    """The git arguments ``last_change`` runs.
+
+    One place builds them, so a proof can record exactly what was run instead
+    of a copy that could drift from it.
+    """
+
+    rev = "--all" if commit is None else _check_commit(commit)
+    return ("log", f"-S{_check_symbol(symbol)}", "--format=%H", "--max-count=1", rev)
+
+
 def last_change(repo: Path, symbol: str, commit: str | None = None) -> str | None:
     """The newest commit that added or removed ``symbol``, or None if none did.
 
@@ -114,15 +126,8 @@ def last_change(repo: Path, symbol: str, commit: str | None = None) -> str | Non
     ``symbol_in_tree`` on the commit and its ``parents``.
     """
 
-    rev = "--all" if commit is None else _check_commit(commit)
     output = run_git(
-        [
-            "log",
-            f"-S{_check_symbol(symbol)}",
-            "--format=%H",
-            "--max-count=1",
-            rev,
-        ],
+        list(last_change_argv(symbol, commit)),
         repo=repo,
         timeout=HISTORY_TIMEOUT_SECONDS,
     ).stdout.strip()
