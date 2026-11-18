@@ -100,7 +100,7 @@
           "path": "lib/CMakeLists.txt",
           "line": 29,
           "text": "configure_file(\"curl_config-cmake.h.in\" \"${CMAKE_CURRENT_BINARY_DIR}/curl_config.h\")",
-          "note": "CMake generates it too, into the build directory. Its contents depend on the build options, so the source can't settle this claim. Pending the not-found agreement (#10)."
+          "note": "CMake generates it too, into the build directory. Its contents depend on the build options, so the source can't settle this claim. There is no not-found signal for files yet."
         }
       ]
     }

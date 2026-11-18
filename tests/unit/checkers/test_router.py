@@ -5,15 +5,9 @@ akib's real checkers (#10) don't exist yet, so these stubs stand in for them.
 
 from __future__ import annotations
 
+from tests.checker_stubs import StubChecker, StubSession
 from triage0.checkers.router import route
-from triage0.core.evidence import (
-    CommandResult,
-    DeterministicProof,
-    EvidenceResult,
-    EvidenceStatus,
-    MissingEvidence,
-)
-from triage0.core.interfaces import SandboxSession
+from triage0.core.evidence import EvidenceResult, EvidenceStatus, MissingEvidence
 from triage0.core.models import (
     AnyClaim,
     ClaimKind,
@@ -22,42 +16,6 @@ from triage0.core.models import (
     SymbolClaim,
     VerificationPlan,
 )
-
-
-class StubSession:
-    """The router never uses the session; checkers get it passed through."""
-
-    tree_hash = "a" * 40
-    commit = None
-
-    def run(self, argv: object, *, timeout_s: float | None = None) -> CommandResult:
-        raise NotImplementedError
-
-    def seal(self, argv: object, *, timeout_s: float | None = None) -> DeterministicProof:
-        raise NotImplementedError
-
-
-class StubChecker:
-    """Handles one claim kind and answers with a scripted result (or error)."""
-
-    def __init__(
-        self, kind: ClaimKind, result: EvidenceResult | None = None, error: Exception | None = None
-    ) -> None:
-        self.claim_kind = kind
-        self._result = result or EvidenceResult(
-            status=EvidenceStatus.CANT_CHECK, summary=f"{kind.value} checker ran"
-        )
-        self._error = error
-        self.seen: list[tuple[str, object]] = []
-
-    def supports(self, claim: AnyClaim) -> bool:
-        return claim.kind == self.claim_kind.value
-
-    def check(self, claim: AnyClaim, sandbox: SandboxSession) -> EvidenceResult:
-        self.seen.append((claim.claim_id, sandbox))
-        if self._error:
-            raise self._error
-        return self._result
 
 
 def _not_found(summary: str = "checker: not found") -> EvidenceResult:

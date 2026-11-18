@@ -69,7 +69,7 @@
           "kind": "absent",
           "pattern": "Curl_http_chunk_unsafe_copy",
           "scope": "history",
-          "note": "The target has never existed in curl. Pending the not-found agreement (#10): a checker reports it as not found, and CONTRADICTED comes only after the history check."
+          "note": "The target has never existed in curl. The not-found signal and the code investigator only cover symbols so far, so the pipeline ends CANT_CHECK here: a miss, not a false flag."
         }
       ]
     }
