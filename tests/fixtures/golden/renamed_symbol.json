@@ -1,6 +1,6 @@
 {
   "case_id": "renamed_symbol",
-  "description": "Self-written report that uses a function name curl renamed before 8.23.0, plus a function name that never existed. For #11: the renamed one must be rescued, never CONTRADICTED; the made-up one is CONTRADICTED after the history check. Both labels are pending the not-found agreement (#10).",
+  "description": "Self-written report that uses a function name curl renamed before 8.23.0, plus a function name that never existed. For #11: the renamed one must be rescued, never CONTRADICTED; the made-up one is CONTRADICTED after the history check. A checker reports both as not found (CANT_CHECK with missing=SYMBOL_ABSENT) and the code investigator decides, as the labels say.",
   "repo_url": "https://github.com/curl/curl",
   "tag": "curl-8_23_0",
   "commit": "3163ec065643ba20709f190111f42c3e1fe95273",
@@ -29,7 +29,7 @@
           "kind": "absent",
           "pattern": "Curl_cookie_parse_fast",
           "scope": "history",
-          "note": "Never existed in curl. Pending the not-found agreement (#10): a checker reports it as not found, and CONTRADICTED comes only after the history check."
+          "note": "Never existed in curl. A checker reports it as not found, and CONTRADICTED comes only after the code investigator finds it in no commit."
         }
       ]
     },
@@ -64,7 +64,7 @@
           "path": "lib/curlx/dynbuf.c",
           "line": 173,
           "text": "CURLcode curlx_dyn_add(struct dynbuf *s, const char *str)",
-          "note": "Renamed to curlx_dyn_add in commit 255aac56f9 (\"curlx: move into to curlx/\"), first released in 8.14.0. Pending the not-found agreement (#10): the label may change once #11 can report a rename."
+          "note": "Renamed to curlx_dyn_add in commit 255aac56f9 (\"curlx: move into to curlx/\"), first released in 8.14.0. The code investigator ends it CANT_CHECK with missing=SYMBOL_REMOVED and that commit."
         }
       ]
     }

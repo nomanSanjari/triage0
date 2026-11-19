@@ -54,10 +54,14 @@ not always what one stage of the pipeline can output:
 - `CANT_CHECK` labels mean the answer can't be proved from the source, so
   `CANT_CHECK` is the only correct output.
 
-**Pending:** labels on claims about something that isn't there (a made-up
-symbol, a renamed symbol, a file that only exists after a build) depend on how
-checkers signal "not found" to the code agent. That is still being agreed on
-#10, and these labels may change once it is.
+**Not found:** a checker reports a symbol that isn't there as `CANT_CHECK` with
+`missing=SYMBOL_ABSENT`, and the code investigator (#11) searches git history.
+For symbols the labels above are what it produces: a made-up symbol is
+`CONTRADICTED` only after the history check, a renamed one stays `CANT_CHECK`
+(`SYMBOL_REMOVED`, with the commit). Other kinds of "not there" (a call-path
+target, a file that only exists after a build) have no signal yet, so a stage
+ends `CANT_CHECK` on them: a miss, not a false flag. Their labels are still the
+true answer.
 
 ## Coverage
 

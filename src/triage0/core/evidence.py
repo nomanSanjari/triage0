@@ -63,7 +63,12 @@ class MissingEvidence(StrEnum):
     explain it, so the investigator would search for nothing.
     """
 
+    # Set by a checker: the symbol isn't at this version; history not yet searched.
     SYMBOL_ABSENT = "SYMBOL_ABSENT"
+    # Set by the code investigator: it existed earlier and history shows the
+    # commit where it disappeared (renamed or deleted; git can't tell which
+    # without the new name). Still CANT_CHECK: the report may describe older code.
+    SYMBOL_REMOVED = "SYMBOL_REMOVED"
 
 
 class _CommandRecord(EvidenceModel):
