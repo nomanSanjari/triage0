@@ -61,9 +61,15 @@ class MissingEvidence(StrEnum):
     existed.  Use it only for things git history could explain.  An analysis
     limit (e.g. no static call path found) is not "missing": history can't
     explain it, so the investigator would search for nothing.
+
+    The file and line values are the same hand-off: the claimed file, line or
+    snippet is not at this version, and history may show where it moved.
     """
 
     SYMBOL_ABSENT = "SYMBOL_ABSENT"
+    FILE_ABSENT = "FILE_ABSENT"
+    LINE_OUT_OF_RANGE = "LINE_OUT_OF_RANGE"
+    CONTENT_DIFFERS = "CONTENT_DIFFERS"
 
 
 class _CommandRecord(EvidenceModel):
