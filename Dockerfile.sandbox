@@ -19,12 +19,65 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential \
+      ca-certificates \
       clang \
       git \
       ripgrep \
       tree-sitter-cli \
       universal-ctags \
  && rm -rf /var/lib/apt/lists/*
+
+# tree-sitter-cli ships no grammars, and the container has no network to fetch
+# one at run time, so the C grammar is baked in from a pinned release tag. The
+# CLI only finds grammars through `parser-directories`, hence the config file.
+# Pinned: a grammar update changes what the symbol and call-path checkers see.
+# Compile the parser at build time so checks never need to compile or download
+# a grammar at runtime. The clone needs ca-certificates because apt is run
+# with --no-install-recommends.
+ARG TREE_SITTER_C_REF=v0.24.2
+# The commit that tag points at today. The build fails if the tag is ever moved,
+# so a clean rebuild can never silently bake different parser code.
+ARG TREE_SITTER_C_SHA=b780e47fc780ddc8da13afa35a3f4ed5c157823d
+RUN git clone --quiet --depth 1 --branch "${TREE_SITTER_C_REF}" \
+      https://github.com/tree-sitter/tree-sitter-c /opt/triage0/src/tree-sitter-c \
+ && test "$(git -C /opt/triage0/src/tree-sitter-c rev-parse HEAD)" = "${TREE_SITTER_C_SHA}" \
+ && rm -rf /opt/triage0/src/tree-sitter-c/.git \
+ && mkdir -p /opt/triage0/lib \
+ && printf '{"parser-directories": ["/opt/triage0/src"]}\n' > /opt/triage0/config.json \
+ && tree-sitter build --output /opt/triage0/lib/c.so /opt/triage0/src/tree-sitter-c
+
+# Keep the query in the trusted image, not the repository being analyzed.
+RUN cat <<'SCM' > /opt/triage0/symbols.scm
+(function_definition
+  declarator: [
+    (function_declarator declarator: (identifier) @name)
+    (pointer_declarator declarator: (function_declarator declarator: (identifier) @name))
+  ]
+  body: (compound_statement)) @function
+[
+  (preproc_def name: (identifier) @name)
+  (preproc_function_def name: (identifier) @name)
+] @macro
+(struct_specifier name: (type_identifier) @name body: (field_declaration_list)) @struct
+(type_definition declarator: [
+  (type_identifier) @name
+  (pointer_declarator declarator: (type_identifier) @name)
+  (array_declarator declarator: (type_identifier) @name)
+]) @typedef
+(declaration declarator: (init_declarator declarator: [
+  (identifier) @name
+  (pointer_declarator declarator: (identifier) @name)
+  (array_declarator declarator: (identifier) @name)
+])) @variable
+((declaration declarator: [
+  (identifier) @name
+  (pointer_declarator declarator: (identifier) @name)
+  (array_declarator declarator: (identifier) @name)
+]) @variable
+  (#not-match? @variable "\\bextern\\b"))
+(ERROR) @error
+(MISSING) @missing
+SCM
 
 # Never run as root by default. The host may still override this with
 # `docker run --user` (e.g. to match the owner of the mounted worktree).
@@ -34,4 +87,7 @@ USER 10001:10001
 # The root filesystem is mounted read-only; tools that write config or
 # cache files under $HOME get the writable /tmp tmpfs instead.
 ENV HOME=/tmp
+
+# Use the prebuilt parser rather than the runtime cache under $HOME.
+ENV TREE_SITTER_LIBDIR=/opt/triage0/lib
 WORKDIR /src
