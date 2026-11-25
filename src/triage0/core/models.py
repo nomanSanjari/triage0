@@ -164,7 +164,13 @@ class ClaimBase(DomainModel):
 
 
 class SymbolClaim(ClaimBase):
-    """A claim that a named code symbol exists (or does not exist)."""
+    """A claim that a named code symbol exists (or does not exist).
+
+    ``expected_present=False`` asserts the symbol is not at this version.
+    Both directions are scoped by ``symbol_kind`` when the report names one, so
+    a macro that shares the name of a claimed-missing function is neither the
+    symbol that exists nor the one that is absent.
+    """
 
     kind: Literal["symbol"] = "symbol"
     symbol: str = Field(min_length=1)
